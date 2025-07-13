@@ -1,0 +1,10 @@
+{
+	"id": "rwk-canvas-timeline",
+	"name": "Canvas Timeline",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Turns a specified canvas into a timeline and maps it to a table in a specified note.",
+	"author": "rwk",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}

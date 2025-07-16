@@ -1,58 +1,74 @@
-import { App, Plugin, PluginSettingTab, Setting } from 'obsidian';
-import { getAndSortCards } from 'scripts/scripts';
+import { App, Plugin, PluginSettingTab, Setting, TFile } from 'obsidian';
+import { processGroup, createMarkdownTable, getAndSortCards, getJSONObject} from 'scripts/scripts';
 
-interface RwkCanvasTimelineSettings {
-	locationMap: Map<string, string>;
+export interface Timeline {
 	canvasPath: string;
 	notePath: string;
+	headings: string[];
+}
+interface RwkCanvasTimelineSettings {
+	timelines: Timeline[];
+	timelineNotes: string[];
 }
 
 const DEFAULT_SETTINGS: RwkCanvasTimelineSettings = {
-	canvasPath: 'default',
-	notePath: 'default',
-	locationMap: new Map()
-}
-
-class CanvasTimeline {
-	canvasPath: string;
-	notePath: string;
-	dirty: boolean;
-	constructor (plugin: RwkCanvasTimelinePlugin) {
-		this.canvasPath = plugin.settings.canvasPath;
-		this.notePath = plugin.settings.notePath;
-
-		this.dirty = true;
-	}
+	timelines: new Array<Timeline>,
+	timelineNotes: new Array<string>
 }
 
 export default class RwkCanvasTimelinePlugin extends Plugin {
-	settings: RwkCanvasTimelineSettings;
-	canvasTimeline: CanvasTimeline;
-
+	settings!: RwkCanvasTimelineSettings;
+	
 	async onload() {
 		await this.loadSettings();
-
-		this.canvasTimeline = new CanvasTimeline(this);
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
+		
+		// This adds a settings tab
 		this.addSettingTab(new RwkCanvasTimelineSettingTab(this.app, this));
-
+		// when a file is opened check for and update any timeline file
 		this.registerEvent(this.app.workspace.on('file-open', (file) => {
-			if(file == null) return;
-			if (this.settings.notePath.contains(file.name)){				
-				getAndSortCards(this, file.name);
-			}
+			if (file == null) return;
+			this.updateTimeline(file);
 		}));
 	}
-
 	onunload() {}
-
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.updateNotesArray();
 	}
-
 	async saveSettings() {
 		await this.saveData(this.settings);
+		this.updateNotesArray();
+	}
+    updateNotesArray() {
+		this.settings.timelineNotes = [];
+		for (const timeline of this.settings.timelines.values()){
+			this.settings.timelineNotes.push(timeline.notePath);
+		}
+    }
+	addNewTimeline() {
+    	console.log ('adding new timeline');
+		this.settings.timelines.push({canvasPath: 'default', notePath: 'default', headings: ['Title', 'Group', 'none']/*, positionIndex: this.settings.timelines.length, titleHeadimgIndex: 0*/});
+	}
+	deleteTimeline(index: number) {
+		console.log ('deleting timeline at index: ' + index);
+		this.settings.timelines.splice(index, 1);
+	}
+	addNewHeading(index: number) {
+		console.log('adding new heading');
+		this.settings.timelines[index].headings.push('none');
+		
+	}
+	getTimelineData(file: TFile): Timeline | undefined{
+		return this.settings.timelines.find(timeline => timeline.notePath == file.name)
+	}
+		
+	async updateTimeline(file: TFile) {
+		const timeline = this.getTimelineData(file);
+		if (timeline == undefined) return;
+		const jsonObject = await getJSONObject(this.app.vault, timeline);
+		const groupsAndCards = getAndSortCards(jsonObject);
+		const rows = await processGroup(this.app, groupsAndCards[0], groupsAndCards[1]);
+    	createMarkdownTable(this.app.vault, timeline, rows);
 	}
 }
 
@@ -65,96 +81,83 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
+
 		const {containerEl} = this;
 		containerEl.empty();
 		containerEl.createEl("h3", { text: "Canvas Timeline Settings" });
 
 		new Setting(containerEl)
-			.setName('Canvas to use as timeline')
-			.setDesc('The canvas that will be used to generate the timeline table')
+			.setName('Add new timeline')
+			.setDesc('adds fields for another canvas and note to be used as a timelline')
+			.addButton(button => button
+				.setIcon('plus')
+				.onClick(mc => {
+					this.plugin.addNewTimeline();
+					this.display();
+				})
+			);
+		
+		containerEl.createEl("h3", {text: "Timelines"});
+		const divTimeline = containerEl.createDiv({cls: "settings-div"});
+
+		for (const [index, timeline] of this.plugin.settings.timelines.entries()){
+		    
+			new Setting(divTimeline)
+			.setName('Canvas and Note for timeline #' + index + 1)//(timeline.positionIndex + 1))
+			.setTooltip('The canvas and note paths that will be used to generate the timeline table')
 			.addText(text => text
 				.setPlaceholder('Canvas path')
-				.setValue(this.plugin.settings.canvasPath)
+				.setValue(timeline.canvasPath)
 				.onChange(async (value) => {
-					this.plugin.settings.canvasPath = value;
+					timeline.canvasPath = value;
 					await this.plugin.saveSettings();
-				}));
-		new Setting(containerEl)
-			.setName('Note to use for generated table')
-			.setDesc('Note that displays the timeline table')
+				})
+			)
 			.addText(text => text
-				.setPlaceholder('Table note path')
-				.setValue(this.plugin.settings.notePath)
+				.setPlaceholder('Note path')
+				.setValue(timeline.notePath)
 				.onChange(async (value) => {
-					this.plugin.settings.notePath = value;
+					timeline.notePath = value;
 					await this.plugin.saveSettings();
-				}));
-	}
-}
+				})
+			)
+			.addButton(button => button 
+				.setIcon('trash')
+				.onClick(async (mc) => {
+					this.plugin.deleteTimeline(index);//timeline.positionIndex);
+					await this.plugin.saveSettings();
+					this.display();
+				})
+			);
 
-/* From Better Word Count
-function element(name: string) {
-    return document.createElement(name);
-}
-function text(data: string) {
-    return document.createTextNode(data);
-}
-function space() {
-    return text(' ');
-}
+			new Setting(divTimeline)
+			.setName('Headings')
+			.setTooltip("If it doesn't exist, a heading name will be added to the frontmatter of each note in the timeline canvas in lowercase")
 
-function createFramgment$1 (ctx: any){
+			const headingsSetting = new Setting(divTimeline);
 
-	let div6;
-	let h40;
-	let t1;
-	let p0;
-	let t3;
-	let div2;
-	let button0;
-	let t5;
-	let button1;
-	let t7;
-	let t8;
-	let h41;
-	let t10;
-	let p1;
-	let t12;
-	let div5;
-	let button2;
-	let t14;
-	let button3;
-	let t16;
-	let mounted;
-	let dispose;
-	let each_value_1 =  ctx[1]; //statusItems
-	let each_blocks_1: string | any[] = [];
+			for (let heading of timeline.headings.values()){
 
-	let each_value =  ctx[2]; //altSItems
-	let each_blocks = [];
-	
-	return{
-		c() {
-			div6 = element("div");
-			h40 = element("h4");
-			h40.textContent = "Markdown Status Bar";
-			t1 = space();
-			p0 = element("p");
-			p0.textContent = "Here you can customize what statistics are displayed on the status bar when editing a markdown note.";
-			t3 = space();
-			div2 = element("div");
-			button0 = element("button");
-			button0.innerHTML = `<div class="icon">Add Item</div>`;
-			t5 = space();
-			button1 = element("button");
-			button1.innerHTML = `<div class="icon">Reset</div>`;
-			t7 = space();
-
-			for (let i = 0; i < each_blocks_1.length; i += 1) {
-					each_blocks_1[i].c();
+				headingsSetting.controlEl.addClass("flexy");
+				headingsSetting
+					.addText(text => text
+						.setPlaceholder('heading')
+						.setValue(heading)
+						.onChange(async (value) => {
+							heading = value;
+							await this.plugin.saveSettings();
+						})
+					);
 			}
+			headingsSetting
+				.addButton(button => button
+					.setIcon('plus')
+					.onClick(async (mc) => {
+						this.plugin.addNewHeading(index);
+						await this.plugin.saveSettings();
+						this.display();
+					})
+				);
 		}
 	}
-	
 }
-*/

@@ -1,29 +1,38 @@
-import RwkCanvasTimelinePlugin from "main";
-import { TFile, Vault } from "obsidian";
+import { Timeline } from "main";
+import { App, TFile, Vault } from "obsidian";
 // google dev-tools filter -source:violation -url:plugin:hot-reload
 
-export async function getAndSortCards(plugin: RwkCanvasTimelinePlugin, fileName: string) {
+interface Node {
+    type: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    label: string;
+    pageCount: number;
+    file: string;
+}
+interface JsonObject {
+    nodes: Node[];
+}
 
-    const jsonObject = await getJSONObject(plugin);
-    
-    const cards: string[] = [];
-    const groups: string[] = [];
+export function getAndSortCards(jsonObject: JsonObject) {
+
+    const cards: Node[] = [];
+    const groups: Node[] = [];
 
     for (const node of jsonObject.nodes) {
         if( node.type == 'file') cards.push(node);
         if( node.type == 'group') groups.push(node);
     }
+    groups.sort((group1: Node, group2: Node) => group1.x - group2.x);
 
-    groups.sort((group1: any, group2: any) => group1.x - group2.x);
-
-    const rows = await processGroup(plugin, cards, groups);
-
-    createMarkdownTable(plugin, rows);
+    return [groups, cards];
 }
 
-function filterCards (group: any, cards: any) {
+function filterCards (group: Node, cards: Node[]) {
     return cards
-        .filter((card: any) => {
+        .filter((card: Node) => {
             if (card.x >= group.x && card.x <= group.x + group.width) {
                 if(Object.hasOwn(group, "label")) {
                     Object.assign(card, {"grouplabel": group.label.toLowerCase()});
@@ -32,21 +41,21 @@ function filterCards (group: any, cards: any) {
                 }
                 return true;
             }})
-        .sort((a:any, b:any) => {
+        .sort((a:Node, b:Node) => {
             if (a.y - b.y == 0) {
                 return a.x - b.x;
             } else return a.y - b.y;
     });
 }
 
-async function updateCards(vault: Vault, groupedCards: any, rows: any) {
-    
+async function updateCards(app: App, groupedCards: Node[], rows: Node[]) {
+
     for(const card of groupedCards) {
         // load each card in the group
-        const tFile = vault.getFileByPath(card.file);
+        const tFile = app.vault.getFileByPath(card.file);
         if (tFile != null) {
             // check if the page the card comes from has these in its frontmatter
-            await this.app.fileManager.processFrontMatter(tFile, (frontmatter: any) => {
+            await app.fileManager.processFrontMatter(tFile, (frontmatter: Record<string, string>) => {
                 if(!('pov' in frontmatter)) {
                     frontmatter['pov'] = 'none';
                 } else {
@@ -70,7 +79,7 @@ async function updateCards(vault: Vault, groupedCards: any, rows: any) {
                     Object.assign(card, {"basename": "none"});
                 }
             }            
-            card.pagecount = await pageCount(tFile);
+            card.pageCount = await pageCount(app.vault, tFile);
         }
         rows.push(card);
     }
@@ -78,7 +87,7 @@ async function updateCards(vault: Vault, groupedCards: any, rows: any) {
 }
 
 // put all cards in a group into the groupedCards array.
-async function processGroup (plugin: RwkCanvasTimelinePlugin, cards: any, groups: any) {
+export async function processGroup (app: App, groups: Node[], cards: Node[]) {
     
     let groupedCards = [];
     const rows: never[] = [];
@@ -86,24 +95,25 @@ async function processGroup (plugin: RwkCanvasTimelinePlugin, cards: any, groups
     for (const group of groups) {
         // find cards with an x value greater than the groups x and less than the groups x + width
         groupedCards = filterCards(group, cards);
-        await updateCards(plugin.app.vault, groupedCards, rows);
+        await updateCards(app, groupedCards, rows);
     }    
     return rows;
-}
+} 
 
-function createMarkdownTable(plugin: RwkCanvasTimelinePlugin, rows: any) { 
+export function createMarkdownTable(vault: Vault, timeline: Timeline, rows: Record<string, string>[]) { 
     const povClassStart = '<span class="';
     const povClassEnd = '">'
     const spanEnd = '</span>'
     const tableSep = '|';
     const tableHeading = '|Title|POV|Date|Group|Page Count|\n|---|---|---|---|---|\n'
-    const output = rows.map((data: {grouplabel: string;pagecount: number; basename: string; pov: string; date: string;}) => {
-        return [tableSep + povClassStart + data.pov + povClassEnd + data.basename + spanEnd + tableSep  + data.pov + tableSep + data.date + tableSep + data.grouplabel + tableSep + data.pagecount.toFixed(2)];
+    const output = rows.map((data: Record<string, unknown>) => {
+        const pageCount = typeof data.pageCount === 'number' ? data.pageCount.toFixed(2) : '0';
+        return [tableSep + povClassStart + data.pov + povClassEnd + data.basename + spanEnd + tableSep  + data.pov + tableSep + data.date + tableSep + data.grouplabel + tableSep + pageCount];
     });
-    const tableFile = plugin.app.vault.getFileByPath(plugin.settings.notePath);
+    const tableFile = vault.getFileByPath(timeline.notePath);
     if(tableFile != null){
-        plugin.app.vault.process(tableFile, data => {
-            data = getTime() + ' RWK\n\n' + tableHeading + output.join('|\n') + tableSep + '\n';
+        vault.process(tableFile, data => {
+            data = getTime() + ' BOOBS\n\n' + tableHeading + output.join('|\n') + tableSep + '\n';
             return data;
         });
     }
@@ -113,25 +123,26 @@ function getDate(): string {
     const date = new Date();
     return date.getHours() + ':' + date.getMinutes() + ' - ' + date.getDay() + ':' + date.getMonth() + 1 + ':' + date.getFullYear();
 }
+
 function getTime(): string {
     const date = new Date();
     return date.getHours().toString() + ' : ' + date.getMinutes().toString();
 }
 
-async function getJSONObject(plugin: RwkCanvasTimelinePlugin) {
-    
+export async function getJSONObject(vault: Vault, timeline: Timeline) {
     let jsonString: string;
-    const tFile = plugin.app.vault.getFileByPath(plugin.settings.canvasPath);
+
+    const tFile = vault.getFileByPath(timeline.canvasPath);
     if (tFile == null) {
         jsonString = "";
-        this.reject('no file found');
+        // promise.reject('no file found');
     } else {
-        jsonString = await plugin.app.vault.cachedRead(tFile);
+        jsonString = await vault.cachedRead(tFile);
     }
     
     const jsonObject = JSON.parse(jsonString);
     if (Object.keys(jsonObject).length === 0) {
-        this.reject('jsonObject is empty');
+        // promise.reject('jsonObject is empty');
     }
     return jsonObject;
 }
@@ -149,7 +160,7 @@ function getWordCount(text: string): number {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function pageCount (file: TFile): Promise<number>{
+async function pageCount (vault: Vault, file: TFile): Promise<number>{
     //\b\w+\b/g
     //---(.|\n)*---((.|\n)*)
     //---((.|\n)*)---((.|\n)*)
@@ -158,9 +169,9 @@ async function pageCount (file: TFile): Promise<number>{
     let content: string;
     if (file == null) {
         content = "";
-        this.reject('no file found');
+        // this.reject('no file found');
     } else {
-        content = await this.app.vault.cachedRead(file);
+        content = await vault.cachedRead(file);
     }
     const matches = content.match(/(---(.|\n)*---)((.|\n)*)(### Act \d|Prologue)((.|\n)*)/);
     let words;

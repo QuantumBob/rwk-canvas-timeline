@@ -1,19 +1,24 @@
-import { App, Plugin, PluginSettingTab, Setting, TFile } from 'obsidian';
-import { processGroup, createMarkdownTable, getAndSortCards, getJSONObject} from 'scripts/scripts';
+import { App, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { allInOneGpt } from 'scripts/scripts';
 
 export interface Timeline {
 	canvasPath: string;
 	notePath: string;
+	headingsAndProperties: string[];
 	headings: string[];
+	properties: string[];
+	titleHeadingIndex: number;
+	colourHeaderIndex: number;
+	showPageCount: boolean;
+	showGroups: boolean;
+	groupHeading: string;
 }
 interface RwkCanvasTimelineSettings {
 	timelines: Timeline[];
-	timelineNotes: string[];
 }
 
 const DEFAULT_SETTINGS: RwkCanvasTimelineSettings = {
 	timelines: new Array<Timeline>,
-	timelineNotes: new Array<string>
 }
 
 export default class RwkCanvasTimelinePlugin extends Plugin {
@@ -27,27 +32,19 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 		// when a file is opened check for and update any timeline file
 		this.registerEvent(this.app.workspace.on('file-open', (file) => {
 			if (file == null) return;
-			this.updateTimeline(file);
+			allInOneGpt(this, file);
 		}));
 	}
 	onunload() {}
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-		this.updateNotesArray();
 	}
 	async saveSettings() {
 		await this.saveData(this.settings);
-		this.updateNotesArray();
 	}
-    updateNotesArray() {
-		this.settings.timelineNotes = [];
-		for (const timeline of this.settings.timelines.values()){
-			this.settings.timelineNotes.push(timeline.notePath);
-		}
-    }
 	addNewTimeline() {
     	console.log ('adding new timeline');
-		this.settings.timelines.push({canvasPath: 'default', notePath: 'default', headings: ['Title', 'Group', 'none']/*, positionIndex: this.settings.timelines.length, titleHeadimgIndex: 0*/});
+		this.settings.timelines.push({canvasPath: '', notePath: '', headingsAndProperties: [], headings: [], properties: [], titleHeadingIndex: 0, colourHeaderIndex: 2, showPageCount: false, showGroups:false, groupHeading: ''});
 	}
 	deleteTimeline(index: number) {
 		console.log ('deleting timeline at index: ' + index);
@@ -55,20 +52,11 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 	}
 	addNewHeading(index: number) {
 		console.log('adding new heading');
-		this.settings.timelines[index].headings.push('none');
-		
+		this.settings.timelines[index].headingsAndProperties.push('none');
 	}
-	getTimelineData(file: TFile): Timeline | undefined{
-		return this.settings.timelines.find(timeline => timeline.notePath == file.name)
-	}
-		
-	async updateTimeline(file: TFile) {
-		const timeline = this.getTimelineData(file);
-		if (timeline == undefined) return;
-		const jsonObject = await getJSONObject(this.app.vault, timeline);
-		const groupsAndCards = getAndSortCards(jsonObject);
-		const rows = await processGroup(this.app, groupsAndCards[0], groupsAndCards[1]);
-    	createMarkdownTable(this.app.vault, timeline, rows);
+	deleteHeading(index: number) {
+		console.log('deleting last heading');
+		this.settings.timelines[index].headingsAndProperties.pop();
 	}
 }
 
@@ -98,12 +86,17 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			);
 		
 		containerEl.createEl("h3", {text: "Timelines"});
-		const divTimeline = containerEl.createDiv({cls: "settings-div"});
+		const divTimelines = containerEl.createDiv({cls: "settings-div"});
 
-		for (const [index, timeline] of this.plugin.settings.timelines.entries()){
-		    
-			new Setting(divTimeline)
-			.setName('Canvas and Note for timeline #' + index + 1)//(timeline.positionIndex + 1))
+		for (const [timelineIndex, timeline] of this.plugin.settings.timelines.entries()){
+
+			const divTimeline = divTimelines.createDiv({cls: "settings-div"});
+			const timelineNumber = timelineIndex + 1;
+
+		    const fileNameSetting = new Setting(divTimeline);
+			fileNameSetting.controlEl.addClass("right-justify");
+			fileNameSetting
+			.setName('Canvas and Note for timeline #' + timelineNumber)
 			.setTooltip('The canvas and note paths that will be used to generate the timeline table')
 			.addText(text => text
 				.setPlaceholder('Canvas path')
@@ -123,41 +116,109 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			)
 			.addButton(button => button 
 				.setIcon('trash')
+				.setTooltip('Delete this timeline. No files will be deleted')
 				.onClick(async (mc) => {
-					this.plugin.deleteTimeline(index);//timeline.positionIndex);
+					this.plugin.deleteTimeline(timelineIndex);
 					await this.plugin.saveSettings();
 					this.display();
 				})
 			);
 
-			new Setting(divTimeline)
+			const headingsTitle = new Setting(divTimeline);
+			headingsTitle
 			.setName('Headings')
-			.setTooltip("If it doesn't exist, a heading name will be added to the frontmatter of each note in the timeline canvas in lowercase")
-
+			.setDesc('Use Title as the tag for the title heading, and Group for the group heading')
+			.setTooltip("If it doesn't exist, a frontmatter tag will be added, in lowercase, for each heading in the headings fields.\nUse pattern 'heading | frontmatter' to use an alias between the frontmatter and the heading.");
+									
 			const headingsSetting = new Setting(divTimeline);
-
-			for (let heading of timeline.headings.values()){
-
-				headingsSetting.controlEl.addClass("flexy");
+			headingsSetting.controlEl.addClass("left-justify", "heading-width");
+			headingsSetting.infoEl.addClass("display-none");
+			
+			for (let [headingIndex, heading] of this.plugin.settings.timelines[timelineIndex].headingsAndProperties.entries()){
 				headingsSetting
-					.addText(text => text
-						.setPlaceholder('heading')
-						.setValue(heading)
-						.onChange(async (value) => {
-							heading = value;
-							await this.plugin.saveSettings();
-						})
-					);
+				.setTooltip("")
+				.addText(text => text
+					.setPlaceholder('heading')
+					.setValue(heading)
+					.onChange(async (value) => {
+						this.plugin.settings.timelines[timelineIndex].headingsAndProperties[headingIndex] = value;
+						await this.plugin.saveSettings();
+					})
+					.inputEl.before(createEl('label', {text: (headingIndex + 1).toString() + ". "}))
+				)
 			}
 			headingsSetting
-				.addButton(button => button
-					.setIcon('plus')
-					.onClick(async (mc) => {
-						this.plugin.addNewHeading(index);
-						await this.plugin.saveSettings();
-						this.display();
-					})
-				);
+			.addButton(button => button
+				.setIcon('plus')
+				.onClick(async (mc) => {
+					this.plugin.addNewHeading(timelineIndex);
+					await this.plugin.saveSettings();
+					this.display();
+				})
+			)
+			.addButton(button => button 
+				.setIcon('trash')
+				.setTooltip('Delete the last heading box')
+				.onClick(async (mc) => {
+					this.plugin.deleteHeading(timelineIndex);
+					await this.plugin.saveSettings();
+					this.display();
+				})
+			);
+			
+			new Setting(divTimeline)
+			.setName('What number heading is the Title?')
+			.setDesc('')
+			.setTooltip('Type the number of the heading. Leave blank for none')
+			.addText(text => text
+				.setValue((this.plugin.settings.timelines[timelineIndex].titleHeadingIndex + 1).toString())
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].titleHeadingIndex =  parseInt(value) - 1;
+					await this.plugin.saveSettings();
+				})
+			)
+			new Setting(divTimeline)
+			.setName('What number heading is the colour scheme on?')
+			.setTooltip('leave blank for none')
+			.addText(text => text
+				.setValue((this.plugin.settings.timelines[timelineIndex].colourHeaderIndex + 1).toString())
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].colourHeaderIndex =  parseInt(value) - 1;
+					await this.plugin.saveSettings();
+				})
+			)
+			new Setting(divTimeline)
+			.setName('Show Page Count')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.timelines[timelineIndex].showPageCount)
+				.setTooltip('The page count will be added as the last column to the table')
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].showPageCount =  value;
+					await this.plugin.saveSettings();
+				})
+			)
+			new Setting(divTimeline)
+			.setName('Show groups in table')
+			.setTooltip('leave blank for none')
+			.addToggle(toggle => toggle 
+				.setValue(this.plugin.settings.timelines[timelineIndex].showGroups)
+				.setTooltip('Toggle on and add a column heading name')
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].showGroups =  value;
+					await this.plugin.saveSettings();
+				})
+			)
+			.addText(text => text
+				.setValue(this.plugin.settings.timelines[timelineIndex].groupHeading)
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].groupHeading= value;
+					await this.plugin.saveSettings();
+				})
+			)
 		}
+	}
+
+	hide(): void {
+		allInOneGpt(this.plugin, this.app.workspace.getActiveFile());
 	}
 }

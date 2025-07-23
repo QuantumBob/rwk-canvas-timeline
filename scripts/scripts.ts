@@ -19,7 +19,7 @@ interface JsonObject {
     nodes: Node[];
 }
 
-export async function allInOneGpt(plugin: RwkCanvasTimelinePlugin, file: TFile | null) {
+export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, file: TFile | null) {
     const timeline = plugin.settings.timelines.find(t => t.notePath === file?.path);
     if (!timeline) return;
 

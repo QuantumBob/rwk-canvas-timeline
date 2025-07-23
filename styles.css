@@ -22,3 +22,10 @@ If your plugin does not need CSS, delete this file.
 .heading-width input[type='text'] {
     width: 150px;
 }
+.canvas-table td:has(span):has(span) {
+    border-style: none;
+    border-radius: 20px;
+}
+.canvas-table  .internal-link {
+    color: white !important;
+}

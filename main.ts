@@ -1,5 +1,6 @@
-import { App, Plugin, PluginSettingTab, Setting } from 'obsidian';
-import { allInOneGpt } from 'scripts/scripts';
+import { App, FileSystemAdapter, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { updateTimeline } from 'scripts/scripts';
+
 
 export interface Timeline {
 	canvasPath: string;
@@ -32,7 +33,7 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 		// when a file is opened check for and update any timeline file
 		this.registerEvent(this.app.workspace.on('file-open', (file) => {
 			if (file == null) return;
-			allInOneGpt(this, file);
+			updateTimeline(this, file);
 		}));
 	}
 	onunload() {}
@@ -58,6 +59,15 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 		console.log('deleting last heading');
 		this.settings.timelines[index].headingsAndProperties.pop();
 	}
+	async copyCssFolder() {
+		console.log('copying css folder to clipboard');
+		// const pathString = '/.obsidian/plugins/rwk-canvas-timeline/';
+		const pathString = '/.obsidian/snippets/';
+		let adapter = this.app.vault.adapter;
+		if (adapter instanceof FileSystemAdapter) {
+			navigator.clipboard.writeText(adapter.getFullPath(pathString));
+		}
+	}
 }
 
 class RwkCanvasTimelineSettingTab extends PluginSettingTab {
@@ -73,17 +83,28 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 		containerEl.empty();
 		containerEl.createEl("h3", { text: "Canvas Timeline Settings" });
-
+		
 		new Setting(containerEl)
-			.setName('Add new timeline')
-			.setDesc('adds fields for another canvas and note to be used as a timelline')
-			.addButton(button => button
-				.setIcon('plus')
-				.onClick(mc => {
-					this.plugin.addNewTimeline();
-					this.display();
-				})
-			);
+		.setName('Path to folder with timeline table rows.css file - /.obsidian/snippets/')
+		.setTooltip('The stylesheet folder for the row colour classes')
+		.addButton(button => button
+			.setIcon('copy')
+			.setTooltip('Copy the folder path to the clipboard')
+			.onClick( mc => {
+				this.plugin.copyCssFolder();
+			})
+		);
+		
+		new Setting(containerEl)
+		.setName('Add new timeline')
+		.setDesc('adds fields for another canvas and note to be used as a timelline')
+		.addButton(button => button
+			.setIcon('plus')
+			.onClick(mc => {
+				this.plugin.addNewTimeline();
+				this.display();
+			})
+		);
 		
 		containerEl.createEl("h3", {text: "Timelines"});
 		const divTimelines = containerEl.createDiv({cls: "settings-div"});
@@ -219,6 +240,6 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 	}
 
 	hide(): void {
-		allInOneGpt(this.plugin, this.app.workspace.getActiveFile());
+		updateTimeline(this.plugin, this.app.workspace.getActiveFile());
 	}
 }

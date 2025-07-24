@@ -1,7 +1,5 @@
 /*
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
-If your plugin does not need CSS, delete this file.
+* Settings tab styles
 */
 .settings-div {
     border: 2px solid var(--background-modifier-border);
@@ -21,11 +19,4 @@ If your plugin does not need CSS, delete this file.
 }
 .heading-width input[type='text'] {
     width: 150px;
-}
-.canvas-table td:has(span):has(span) {
-    border-style: none;
-    border-radius: 20px;
-}
-.canvas-table  .internal-link {
-    color: white !important;
 }

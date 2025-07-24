@@ -1,5 +1,5 @@
-import RwkCanvasTimelinePlugin from "main";
-import { TFile, Vault } from "obsidian";
+import RwkCanvasTimelinePlugin, { TimelineSettings } from "main";
+import { FileManager, TFile, Vault } from "obsidian";
 // google dev-tools filter -source:violation -url:plugin:hot-reload
 
 // the Node interface is related to the json node of the canvas and adds info about the page it refers to.
@@ -19,24 +19,30 @@ interface JsonObject {
     nodes: Node[];
 }
 
-export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, file: TFile | null) {
+export async function updateTimeline (plugin: RwkCanvasTimelinePlugin, file: TFile | null) {
     const timeline = plugin.settings.timelines.find(t => t.notePath === file?.path);
     if (!timeline) return;
 
-    const canvasFile = plugin.app.vault.getFileByPath(timeline.canvasPath);
+    const jsonObject = await getJsonObject(plugin.app.vault, timeline);
+    const rows = await sortCards(plugin.app.vault, plugin.app.fileManager, jsonObject, timeline);
+    createMarkdownTable(plugin.app.vault, timeline, rows);
+}
+async function getJsonObject (vault: Vault, timeline: TimelineSettings) {
+
+    const canvasFile = vault.getFileByPath(timeline.canvasPath);
     let jsonString = "";
 
     if (canvasFile) {
-        jsonString = await plugin.app.vault.cachedRead(canvasFile);
+        jsonString = await vault.cachedRead(canvasFile);
     }
-
-    let jsonObject: JsonObject;
     try {
-        jsonObject = JSON.parse(jsonString);
+        return JSON.parse(jsonString);
     } catch (e) {
         console.error("Invalid JSON in canvas file:", e);
         return;
     }
+}
+async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: JsonObject, timeline: TimelineSettings) {
 
     const cards: Node[] = [];
     const groups: Node[] = [];
@@ -69,12 +75,12 @@ export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, file: TFil
                 return card;
             })
             .sort((a, b) => a.y - b.y || a.x - b.x);
-
+        
         for (const card of cardsInGroup) {
-            const cardFile = plugin.app.vault.getFileByPath(card.file);
+            const cardFile = vault.getFileByPath(card.file);
             if (!cardFile) continue;
 
-            await plugin.app.fileManager.processFrontMatter(cardFile, (frontmatter: Record<string, string>) => {
+            await fileManager.processFrontMatter(cardFile, (frontmatter: Record<string, string>) => {
                 for (const [index, property] of timeline.properties.entries()) {
                     if (!property?.length) continue;
                     if (timeline.titleHeadingIndex == index) continue;
@@ -87,13 +93,15 @@ export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, file: TFil
             });
 
             card.basename = cardFile.basename ?? 'none';
-            card.pageCount = timeline.showPageCount ? await pageCount(plugin.app.vault, cardFile): -1;
+            card.pageCount = timeline.showPageCount ? await pageCount(vault, cardFile): -1;
 
             rows.push(card);
         }
-    }
+    }return rows;
+}
+function createMarkdownTable (vault: Vault, timeline: TimelineSettings, rows: Node[]) {
 
-    const tableFile = plugin.app.vault.getFileByPath(timeline.notePath);
+    const tableFile = vault.getFileByPath(timeline.notePath);
     if (!tableFile) return;
 
     let tableHeadingRow = '|';
@@ -137,18 +145,18 @@ export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, file: TFil
 
     const finalOutput = `${tableHeadingRow}\n${tableDividerRow}\n${outputRows.join('\n')}`;
 
-    plugin.app.vault.process(tableFile, data => {
+    vault.process(tableFile, data => {
         // const regex = /(\|.*?\|\n)+/g;
         const regex = /\|[\|\w\n\s-<=">\[\]/:\.]+\|/
         const matches = data.match(regex);
         if (matches == null || matches.length == 0) {
-            plugin.app.vault.append(tableFile, finalOutput);
+            vault.append(tableFile, finalOutput);
             return data;
         } else
             return data.replace(regex, finalOutput);
     });
 }
-async function pageCount (vault: Vault, file: TFile): Promise<number>{
+async function pageCount (vault: Vault, file: TFile): Promise<number> {
     //\b\w+\b/g
     //---(.|\n)*---((.|\n)*)
     //---((.|\n)*)---((.|\n)*)

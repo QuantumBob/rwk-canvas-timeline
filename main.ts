@@ -1,8 +1,8 @@
-import { App, FileSystemAdapter, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, FileSystemAdapter, Plugin, PluginSettingTab, Setting, TextComponent, TFile } from 'obsidian';
+import { CanvasFileSuggest, MarkdownFileSuggest } from 'scripts/inputSuggest';
 import { updateTimeline } from 'scripts/scripts';
 
-
-export interface Timeline {
+export interface TimelineSettings {
 	canvasPath: string;
 	notePath: string;
 	headingsAndProperties: string[];
@@ -15,16 +15,18 @@ export interface Timeline {
 	groupHeading: string;
 }
 interface RwkCanvasTimelineSettings {
-	timelines: Timeline[];
+	timelines: TimelineSettings[];
+	suggestText: string;
 }
 
 const DEFAULT_SETTINGS: RwkCanvasTimelineSettings = {
-	timelines: new Array<Timeline>,
+	timelines: new Array<TimelineSettings>,
+	suggestText: ''
 }
 
 export default class RwkCanvasTimelinePlugin extends Plugin {
 	settings!: RwkCanvasTimelineSettings;
-	
+			
 	async onload() {
 		await this.loadSettings();
 		
@@ -33,7 +35,7 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 		// when a file is opened check for and update any timeline file
 		this.registerEvent(this.app.workspace.on('file-open', (file) => {
 			if (file == null) return;
-			updateTimeline(this, file);
+			this.updateTimeline(file);
 		}));
 	}
 	onunload() {}
@@ -61,12 +63,15 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 	}
 	async copyCssFolder() {
 		console.log('copying css folder to clipboard');
-		// const pathString = '/.obsidian/plugins/rwk-canvas-timeline/';
 		const pathString = '/.obsidian/snippets/';
 		let adapter = this.app.vault.adapter;
 		if (adapter instanceof FileSystemAdapter) {
 			navigator.clipboard.writeText(adapter.getFullPath(pathString));
 		}
+	}
+
+	updateTimeline(file: TFile) {
+		updateTimeline(this, file);
 	}
 }
 
@@ -78,11 +83,25 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+
 	display(): void {
 
 		const {containerEl} = this;
 		containerEl.empty();
 		containerEl.createEl("h3", { text: "Canvas Timeline Settings" });
+
+		// Input box with simple suggestion search
+		// const callback = async (value:string) => {
+		// 	this.plugin.settings.suggestText = value;
+		// 	await this.plugin.saveSettings();
+        // }
+		// const setting = new Setting(containerEl)
+		// 	.setName('Suggest Test')
+		// const textComponent = new TextComponent(setting.controlEl)
+		// 	.setValue('')
+		// 	.onChange(callback)
+		// new FileSuggest(textComponent.inputEl as HTMLInputElement, this.app, callback)
+		
 		
 		new Setting(containerEl)
 		.setName('Path to folder with timeline table rows.css file - /.obsidian/snippets/')
@@ -114,28 +133,36 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			const divTimeline = divTimelines.createDiv({cls: "settings-div"});
 			const timelineNumber = timelineIndex + 1;
 
+			const canvasCallback = async (value:string) => {
+				timeline.canvasPath = value;
+				await this.plugin.saveSettings();
+			}
+
+			const noteCallback = async (value:string) => {
+				timeline.notePath = value;
+				await this.plugin.saveSettings();
+			}
+
 		    const fileNameSetting = new Setting(divTimeline);
+
 			fileNameSetting.controlEl.addClass("right-justify");
+
 			fileNameSetting
 			.setName('Canvas and Note for timeline #' + timelineNumber)
-			.setTooltip('The canvas and note paths that will be used to generate the timeline table')
-			.addText(text => text
+			.setTooltip('The canvas and note paths that will be used to generate the timeline table');
+			const canvasTextComponent = new TextComponent(fileNameSetting.controlEl)
 				.setPlaceholder('Canvas path')
 				.setValue(timeline.canvasPath)
-				.onChange(async (value) => {
-					timeline.canvasPath = value;
-					await this.plugin.saveSettings();
-				})
-			)
-			.addText(text => text
+				.onChange(canvasCallback)
+			new CanvasFileSuggest(canvasTextComponent.inputEl as HTMLInputElement, this.app, canvasCallback);
+
+			const noteTextComponent = new TextComponent(fileNameSetting.controlEl)
 				.setPlaceholder('Note path')
 				.setValue(timeline.notePath)
-				.onChange(async (value) => {
-					timeline.notePath = value;
-					await this.plugin.saveSettings();
-				})
-			)
-			.addButton(button => button 
+				.onChange(noteCallback)
+			new MarkdownFileSuggest(noteTextComponent.inputEl as HTMLInputElement, this.app, noteCallback);
+	
+			fileNameSetting.addButton(button => button 
 				.setIcon('trash')
 				.setTooltip('Delete this timeline. No files will be deleted')
 				.onClick(async (mc) => {
@@ -240,6 +267,7 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 	}
 
 	hide(): void {
+		console.log(this.plugin.settings.suggestText);
 		updateTimeline(this.plugin, this.app.workspace.getActiveFile());
 	}
 }

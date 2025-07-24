@@ -1,0 +1,28 @@
+.canvas-table td:has(span):has(span) {
+    border-style: none;
+    border-radius: 20px;
+}
+.canvas-table  .internal-link {
+    color: white !important;
+}
+/*
+ * Example colours for the table rows 
+*/
+.alice, .bob, .cora, .other, .none{
+    color:black;
+    font-weight: bold;
+}tr:has(td):has(span):has(.none) {
+    background-color: #9f16a9 !important;
+}
+tr:has(td):has(span):has(.other) {
+    background-color: #2d0e30 !important;
+}
+tr:has(td):has(span):has(.alice) {
+    background-color: #2F5139 !important;
+}
+tr:has(td):has(span):has(.bob) {
+    background-color: #775FAE !important;
+}
+tr:has(td):has(span):has(.cora) {
+    background-color: #979653 !important;
+}

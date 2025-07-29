@@ -6,5 +6,6 @@
 	"description": "Turns a canvas into a timeline and maps it to a table in a note.",
 	"author": "rwk",
 	"authorUrl": "",
-	"isDesktopOnly": true
+	"isDesktopOnly": true,
+	"repo": "https://github.com/QuantumBob/rwk-canvas-timeline"
 }

@@ -11,8 +11,11 @@ export interface TimelineSettings {
 	titleHeadingIndex: number;
 	colourHeaderIndex: number;
 	showPageCount: boolean;
+	showRowNumbers: boolean;
 	showGroups: boolean;
+	showUngrouped: boolean;
 	groupHeading: string;
+	ignoreGroups: string;
 }
 interface RwkCanvasTimelineSettings {
 	timelines: TimelineSettings[];
@@ -32,10 +35,17 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 		
 		// This adds a settings tab
 		this.addSettingTab(new RwkCanvasTimelineSettingTab(this.app, this));
-		// when a file is opened check for and update any timeline file
-		this.registerEvent(this.app.workspace.on('file-open', (file) => {
+		this.registerEvent(this.app.vault.on('modify', file => {
 			if (file == null) return;
-			this.updateTimeline(file);
+			if (file instanceof TFile) {
+				if ((file as TFile).extension != 'canvas') return;
+				updateTimeline(this, file);
+			}
+		}));
+		this.registerEvent(this.app.workspace.on('file-open', file => {
+			if (file == null) return;
+				if (file.extension != 'md') return;
+				updateTimeline(this, file);
 		}));
 	}
 	onunload() {}
@@ -47,7 +57,7 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 	}
 	addNewTimeline() {
     	console.log ('adding new timeline');
-		this.settings.timelines.push({canvasPath: '', notePath: '', headingsAndProperties: [], headings: [], properties: [], titleHeadingIndex: 0, colourHeaderIndex: 2, showPageCount: false, showGroups:false, groupHeading: ''});
+		this.settings.timelines.push({canvasPath: '', notePath: '', headingsAndProperties: [], headings: [], properties: [], titleHeadingIndex: 0, colourHeaderIndex: 2, showPageCount: false, showRowNumbers: false, showGroups:false, showUngrouped: false, groupHeading: '', ignoreGroups: ''});
 	}
 	deleteTimeline(index: number) {
 		console.log ('deleting timeline at index: ' + index);
@@ -55,7 +65,7 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 	}
 	addNewHeading(index: number) {
 		console.log('adding new heading');
-		this.settings.timelines[index].headingsAndProperties.push('none');
+		this.settings.timelines[index].headingsAndProperties.push('');
 	}
 	deleteHeading(index: number) {
 		console.log('deleting last heading');
@@ -69,10 +79,6 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 			navigator.clipboard.writeText(adapter.getFullPath(pathString));
 		}
 	}
-
-	updateTimeline(file: TFile) {
-		updateTimeline(this, file);
-	}
 }
 
 class RwkCanvasTimelineSettingTab extends PluginSettingTab {
@@ -83,25 +89,26 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-
 	display(): void {
 
 		const {containerEl} = this;
 		containerEl.empty();
 		containerEl.createEl("h3", { text: "Canvas Timeline Settings" });
 
-		// Input box with simple suggestion search
-		// const callback = async (value:string) => {
-		// 	this.plugin.settings.suggestText = value;
-		// 	await this.plugin.saveSettings();
-        // }
-		// const setting = new Setting(containerEl)
-		// 	.setName('Suggest Test')
-		// const textComponent = new TextComponent(setting.controlEl)
-		// 	.setValue('')
-		// 	.onChange(callback)
-		// new FileSuggest(textComponent.inputEl as HTMLInputElement, this.app, callback)
-		
+		/* Input box with simple suggestion search
+		* import { FileSuggest, CanvasFileSuggest, MarkdownFileSuggest } from 'inputSuggest';
+		*
+		const callback = async (value:string) => {
+			this.plugin.settings.suggestText = value;
+			await this.plugin.saveSettings();
+        }
+		const setting = new Setting(containerEl)
+			.setName('Suggest Test')
+		const textComponent = new TextComponent(setting.controlEl)
+			.setValue('')
+			.onChange(callback)
+		new FileSuggest(textComponent.inputEl as HTMLInputElement, this.app, callback)
+		*/
 		
 		new Setting(containerEl)
 		.setName('Path to folder with timeline table rows.css file - /.obsidian/snippets/')
@@ -236,6 +243,16 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 				})
 			)
 			new Setting(divTimeline)
+			.setName('Show Row Numbers')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.timelines[timelineIndex].showRowNumbers)
+				.setTooltip('Add a number to each row')
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].showRowNumbers =  value;
+					await this.plugin.saveSettings();
+				})
+			)
+			new Setting(divTimeline)
 			.setName('Show Page Count')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.timelines[timelineIndex].showPageCount)
@@ -247,6 +264,7 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			)
 			new Setting(divTimeline)
 			.setName('Show groups in table')
+			.setDesc('Optionally give the column a title')
 			.setTooltip('leave blank for none')
 			.addToggle(toggle => toggle 
 				.setValue(this.plugin.settings.timelines[timelineIndex].showGroups)
@@ -263,11 +281,34 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				})
 			)
+
+			new Setting(divTimeline)
+			.setName('Show Ungrouped Cards')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.timelines[timelineIndex].showUngrouped)
+				.setTooltip('Add a number to each row')
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].showUngrouped =  value;
+					await this.plugin.saveSettings();
+				})
+			)
+
+			new Setting(divTimeline)
+			.setName('Ignore groups with these labels')
+			.setDesc('Seperate each group with a comma or a space')
+			.setTooltip('leave blank for none')
+			.addText(text => text
+				.setValue(this.plugin.settings.timelines[timelineIndex].ignoreGroups)
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].ignoreGroups = value;
+					await this.plugin.saveSettings();
+				})
+			)
 		}
 	}
 
 	hide(): void {
-		console.log(this.plugin.settings.suggestText);
-		updateTimeline(this.plugin, this.app.workspace.getActiveFile());
+		const file = this.app.workspace.getActiveFile();
+		updateTimeline(this.plugin, file);
 	}
 }

@@ -11,7 +11,6 @@ abstract class AddTextSuggest extends AbstractInputSuggest<string> {
     }
 
     getSuggestions(inputStr: string): string[] {
-        console.log('in addTextSuggest');
         return this.doSimpleSearch(this.getParts(inputStr)[1]);
     }
 

@@ -24,7 +24,6 @@ export interface TimelineSettings {
 	headingsAndProperties: string[];
 	headings: string[];
 	properties: string[];
-	// rows: Node[];
 	titleHeadingIndex: number;
 	colourHeaderIndex: number;
 	showPageCount: boolean;
@@ -35,8 +34,6 @@ export interface TimelineSettings {
 	ignoreGroups: string;
 	wordsPerPage: number;
 	totalPageCount: number;
-	dirtyActStats: boolean;
-	actsPageCount: Map<string, number>;
 	actStats: Act[];
 	showActStats: boolean;
 }
@@ -49,10 +46,6 @@ interface RwkCanvasTimelineSettings {
 	timelines: TimelineSettings[];
 	lastIndex: number;
 	defaultWordsPerPage: number;
-	timelineOpened: boolean;
-	tableOpened: boolean;
-	noteOpened: boolean;
-	timelineJustClosed: boolean;
 	updateRunning: boolean;
 	initializing: boolean;
 }
@@ -64,10 +57,6 @@ const DEFAULT_SETTINGS: RwkCanvasTimelineSettings = {
 	timelines: new Array<TimelineSettings>,
 	lastIndex: 0,
 	defaultWordsPerPage: 250,
-	timelineOpened: false,
-	tableOpened: false,
-	noteOpened: false,
-	timelineJustClosed: false,
 	updateRunning: false,
 	initializing: false
 }
@@ -91,8 +80,6 @@ const DEFAULT_TIMELINE: TimelineSettings = {
 	ignoreGroups: "",
 	wordsPerPage: 250,
 	totalPageCount: -1,
-	dirtyActStats: false,
-	actsPageCount: new Map(),
 	actStats: [],
 	showActStats: false
 }
@@ -106,20 +93,20 @@ const DEFAULT_TIMELINE: TimelineSettings = {
  */
 export default class RwkCanvasTimelinePlugin extends Plugin {
 	settings!: RwkCanvasTimelineSettings;
-			
+
 	async onload() {
-		
+
 		await this.loadSettings();
-		
+
 		// Add a settings tab to the plugin
 		this.addSettingTab(new RwkCanvasTimelineSettingTab(this.app, this));
 
-		// The modify event for a note or canvas. Calls updateTimeline 
+		// The modify event for a note or canvas. Calls updateTimeline
 		this.registerEvent(this.app.vault.on('modify', async file => {
 		    if (this.settings.initializing) return;
-			if(file instanceof TFile){					 
+			if(file instanceof TFile){
 					const timeline = await getTimeline(this, file);
-					if (!timeline) 
+					if (!timeline)
 						return;
 					await updateTimeline(this, timeline);//file);
 			}
@@ -128,9 +115,9 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 			this.settings.initializing = true;
 			await initTimelines(this);
 		})
-		
+
 	}
-	
+
 	onunload() {}
 
 	async loadSettings() {
@@ -202,29 +189,29 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			.onChange(callback)
 		new FileSuggest(textComponent.inputEl as HTMLInputElement, this.app, callback)
 		*/
-		
+
 		new Setting(containerEl)
 		.setName('Path to folder with timeline table rows.css file - /.obsidian/snippets/')
 		.setTooltip('The stylesheet folder for the row colour classes')
 		.addButton(button => button
 			.setIcon('copy')
 			.setTooltip('Copy the folder path to the clipboard')
-			.onClick( mc => {
+			.onClick( () => {
 				this.plugin.copyCssFolder();
 			})
 		);
-		
+
 		new Setting(containerEl)
 		.setName('Add new timeline')
 		.setDesc('adds fields for another canvas and note to be used as a timelline')
 		.addButton(button => button
 			.setIcon('plus')
-			.onClick(mc => {
+			.onClick( () => {
 				this.plugin.addNewTimeline();
 				this.display();
 			})
 		);
-		
+
 		containerEl.createEl("h3", {text: "Timelines"});
 		const divTimelines = containerEl.createDiv({cls: "settings-div"});
 
@@ -261,11 +248,11 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 				.setValue(timeline.notePath)
 				.onChange(noteCallback)
 			new MarkdownFileSuggest(noteTextComponent.inputEl as HTMLInputElement, this.app, noteCallback);
-	
+
 			fileNameSetting.addButton(button => button 
 				.setIcon('trash')
 				.setTooltip('Delete this timeline. No files will be deleted')
-				.onClick(async (mc) => {
+				.onClick(async () => {
 					this.plugin.deleteTimeline(timelineIndex);
 					await this.plugin.saveSettings();
 					this.display();
@@ -277,11 +264,11 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			.setName('Headings')
 			.setDesc('Use Title as the tag for the title heading, and Group for the group heading')
 			.setTooltip("If it doesn't exist, a frontmatter tag will be added, in lowercase, for each heading in the headings fields.\nUse pattern 'heading | frontmatter' to use an alias between the frontmatter and the heading.");
-									
+
 			const headingsSetting = new Setting(divTimeline);
 			headingsSetting.controlEl.addClass("left-justify", "heading-width");
 			headingsSetting.infoEl.addClass("display-none");
-			
+
 			for (let [headingIndex, heading] of this.plugin.settings.timelines[timelineIndex].headingsAndProperties.entries()){
 				headingsSetting
 				.setTooltip("")
@@ -298,7 +285,7 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			headingsSetting
 			.addButton(button => button
 				.setIcon('plus')
-				.onClick(async (mc) => {
+				.onClick(async () => {
 					this.plugin.addNewHeading(timelineIndex);
 					await this.plugin.saveSettings();
 					this.display();
@@ -307,13 +294,13 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			.addButton(button => button 
 				.setIcon('trash')
 				.setTooltip('Delete the last heading box')
-				.onClick(async (mc) => {
+				.onClick(async () => {
 					this.plugin.deleteHeading(timelineIndex);
 					await this.plugin.saveSettings();
 					this.display();
 				})
 			);
-			
+
 			new Setting(divTimeline)
 			.setName('What number heading is the Title?')
 			.setDesc('')
@@ -366,7 +353,7 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				})
 			)
-			
+
 			new Setting(divTimeline)
 			.setName('Show Groups Column')
 			.setDesc('Optionally give the column a title')
@@ -412,7 +399,6 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.timelines[timelineIndex].showActStats)
 				.onChange(async value => {
 					this.plugin.settings.timelines[timelineIndex].showActStats =  value;
-					this.plugin.settings.timelines[timelineIndex].dirtyActStats = true;
 					await this.plugin.saveSettings();
 				})
 			)
@@ -425,6 +411,6 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 		for (let i = this.plugin.settings.lastIndex; i < this.plugin.settings.timelines.length; i++){
 			updateTimeline(this.plugin, this.plugin.settings.timelines[i]);
 		}
-		
+
 	}
 }

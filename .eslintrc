@@ -15,10 +15,10 @@
     },
     "rules": {
       "no-unused-vars": "off",
-      "@typescript-eslint/no-unused-vars": ["error", { "args": "none"}],//, "varsIgnorePattern": "[function [\\w]+\\s*\\(]"}],
+      "@typescript-eslint/no-unused-vars": ["error", { "vars": "all", "args": "all"}],//, "varsIgnorePattern": "[function [\\w]+\\s*\\(]"}],
       "@typescript-eslint/ban-ts-comment": "off",
       "no-prototype-builtins": "off",
-      "@typescript-eslint/no-empty-function": "off",
+      // "@typescript-eslint/no-empty-function": "off",
       "@typescript-eslint/no-explicit-any": "error"
     } 
   }

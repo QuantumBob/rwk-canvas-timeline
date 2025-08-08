@@ -24,7 +24,7 @@ export interface Node {
 }
 
 /** Quick interface to store and pass the json object data
- * 
+ *
  * @interface JsonObject
  */
 interface JsonObject {
@@ -32,7 +32,7 @@ interface JsonObject {
 }
 
 export async function initTimelines(plugin: RwkCanvasTimelinePlugin) {
-        
+
     plugin.settings.timelines.forEach(async timeline => {
         const jsonObject = await getJsonObject(plugin.app.vault, timeline);
         updateHeadingsAndProperties(timeline);
@@ -42,15 +42,15 @@ export async function initTimelines(plugin: RwkCanvasTimelinePlugin) {
     plugin.settings.initializing = false;
 }
 /** updates the table used as a timeline
- *  
+ *
  * @export
  * @async
- * @param {RwkCanvasTimelinePlugin} plugin 
- * @param {(TFile | null)} file 
+ * @param {RwkCanvasTimelinePlugin} plugin
+ * @param {(TFile | null)} file
  */
 export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, timeline: TimelineSettings) {// file: TFile) {// | null) {
 
-    if ( plugin.settings.updateRunning) 
+    if ( plugin.settings.updateRunning)
         return;
 
     plugin.settings.updateRunning = true;
@@ -61,49 +61,12 @@ export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, timeline: 
     await createMarkdownTable(plugin.app.vault, timeline, rows);
     plugin.settings.updateRunning = false;
 }
-/** looks at which files are open, just closed and sets the flags in the settings
- *
- * @param {RwkCanvasTimelinePlugin} plugin 
- * @param {(TFile | null)} file 
- * @param {(TimelineSettings | undefined)} timeline 
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function setFileChanges(plugin: RwkCanvasTimelinePlugin, fileExtension: string, timeline: TimelineSettings | undefined) {
-
-    const settings = plugin.settings;
-    
-    if (fileExtension == 'md') {
-        if (timeline) {
-            settings.tableOpened = true;
-            settings.timelineOpened = false;
-            if (plugin.app.workspace.getLastOpenFiles()[0].includes(timeline.canvasPath))
-                settings.timelineJustClosed = true;
-            else
-                settings.timelineJustClosed = false;
-        }
-    } else if (fileExtension == 'canvas') {
-        if (timeline) {
-            settings.timelineOpened = true;
-            settings.timelineJustClosed = false;
-            settings.tableOpened = false;
-        }
-    }
-    if (!timeline) {
-        if(settings.timelineOpened)
-            settings.timelineJustClosed = true;
-        else
-            settings.timelineJustClosed = false;
-
-        settings.tableOpened = false;
-        settings.timelineOpened = false;
-    }
-}
 /** Description placeholdergets the timeline from the file parameter 
  * if the file is registered in the timeline plugin settings
  *
- * @param {RwkCanvasTimelinePlugin} plugin 
- * @param {(TFile | null)} file 
- * @returns {(TimelineSettings | undefined)} 
+ * @param {RwkCanvasTimelinePlugin} plugin
+ * @param {(TFile | null)} file
+ * @returns {(TimelineSettings | undefined)}
  */
 export async function getTimeline(plugin: RwkCanvasTimelinePlugin, file: TFile | null) : Promise<TimelineSettings | undefined> {
 
@@ -121,7 +84,7 @@ export async function getTimeline(plugin: RwkCanvasTimelinePlugin, file: TFile |
 }
 /** Seperate out the headings and properties for the timeline table
  *
- * @param {TimelineSettings} timeline 
+ * @param {TimelineSettings} timeline
  */
 function updateHeadingsAndProperties(timeline: TimelineSettings) {
     timeline.headings = [];
@@ -135,15 +98,15 @@ function updateHeadingsAndProperties(timeline: TimelineSettings) {
 /** Gets the JSON from the file
  *
  * @async
- * @param {Vault} vault 
- * @param {TimelineSettings} timeline 
- * @returns {Promise<JsonObject>} 
+ * @param {Vault} vault
+ * @param {TimelineSettings} timeline
+ * @returns {Promise<JsonObject>}
  */
 async function getJsonObject (vault: Vault, timeline: TimelineSettings) : Promise<JsonObject> {
 
     const canvasFile = vault.getFileByPath(timeline.canvasPath);
     let jsonString = "";
- 
+
     if (canvasFile) {
         jsonString = await vault.cachedRead(canvasFile);
     }
@@ -156,13 +119,13 @@ async function getJsonObject (vault: Vault, timeline: TimelineSettings) : Promis
 }
 /** All in one function to sort the cards and groups
  * This is currently working
- * 
+ *
  * @async
- * @param {Vault} vault 
- * @param {FileManager} fileManager 
- * @param {JsonObject} jsonObject 
- * @param {TimelineSettings} timeline 
- * @returns {Promise<Node[]>} 
+ * @param {Vault} vault
+ * @param {FileManager} fileManager
+ * @param {JsonObject} jsonObject
+ * @param {TimelineSettings} timeline
+ * @returns {Promise<Node[]>}
  */
 async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: JsonObject, timeline: TimelineSettings): Promise<Node[]> {
 
@@ -204,7 +167,7 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
                 return card;
             })
             .sort((a, b) => a.y - b.y || a.x - b.x);
-        
+
         for (const card of cardsInGroup) {
             const cardFile = vault.getFileByPath(card.file);
             if (!cardFile) continue;
@@ -223,7 +186,6 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
             });
 
             card.basename = cardFile.basename ?? 'none';
-            
             card.canvas = timeline.canvasPath ?? 'none';
 
             const pageCount = timeline.showPageCount ? await getPageCount(vault, cardFile, timeline.wordsPerPage): 0;
@@ -253,13 +215,13 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
         for(const element of groupedCardIds){
             ungroupedCardIds.delete(element);
         }
-        
+
         const ungroupedCards = cards
            .filter(card => {
                 const found = ungroupedCardIds.has(card.id);
                 return found;
             });
-    
+
         for (const card of ungroupedCards){
             const cardFile = vault.getFileByPath(card.file);
             if (!cardFile) continue;
@@ -277,9 +239,9 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
             });
 
             card.basename = cardFile.basename ?? 'none';
-            
+
             card.canvas = timeline.canvasPath ?? 'none';
-            
+
             card.label = 'no group';
             const pageCount = timeline.showPageCount ? await getPageCount(vault, cardFile, timeline.wordsPerPage) : 0;
             card.pageCount = parseFloat(pageCount.toFixed(2));
@@ -303,14 +265,14 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
 }
 /** creates a string for the statistics for each act
  *
- * @param {TimelineSettings} timeline 
- * @returns {string} 
+ * @param {TimelineSettings} timeline
+ * @returns {string}
  */
 function createActStats (timeline : TimelineSettings) : string {
 
     let actStats = "";
     timeline.actStats.sort((a, b) => ('' + a.name).localeCompare(b.name));
-    timeline.actStats.forEach((value, key) => {
+    timeline.actStats.forEach((value) => {
         const pageString = value.pages == 1 ? 'page' : 'pages';
         const sceneString = value.scenes == 1 ? 'scene' : 'scenes';
         actStats += `- Act ${value.name} : ${value.scenes} ${sceneString}, ${value.pages} ${pageString}\n`
@@ -318,7 +280,7 @@ function createActStats (timeline : TimelineSettings) : string {
     return actStats;
 }
 /** Takes the array of rows and generates a markdown table
- * 
+ *
  * @async
  * @param {Vault} vault 
  * @param {TimelineSettings} timeline 
@@ -359,7 +321,7 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
         tableHeadingRow += `Page Count: ${timeline.totalPageCount.toFixed(2)}|`;
         tableDividerRow += '---|';
     }
-       
+
     const outputRows: string[] = rows.map((data, index) => {
         const colourProperty = timeline.properties[timeline.colourHeaderIndex];
         let row = '';
@@ -404,12 +366,12 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
         }
     });
 }
-/** Counts the number of words in the given file and 
+/** Counts the number of words in the given file and
  * converts that to pages by dividing by 'wordsperPage'
  *
  * @async
- * @param {Vault} vault 
- * @param {TFile} file 
+ * @param {Vault} vault
+ * @param {TFile} file
  */
 async function getPageCount (vault: Vault, file: TFile, wordsPerPage: number) {
     //\b\w+\b/g
@@ -436,7 +398,7 @@ async function getPageCount (vault: Vault, file: TFile, wordsPerPage: number) {
 /** Returns a simple get time function as a string
  * 
  *
- * @returns {string} 
+ * @returns {string}
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getTime(): string {
@@ -445,10 +407,10 @@ function getTime(): string {
     return `${date.getHours()} : ${date.getMinutes()} : ${date.getSeconds()}`;
 }
 /** Gets the number of words in the given string
- * 
  *
- * @param {string} text 
- * @returns {number} 
+ *
+ * @param {string} text
+ * @returns {number}
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getWordCount(text: string): number {

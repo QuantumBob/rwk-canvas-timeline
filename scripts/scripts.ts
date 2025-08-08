@@ -275,7 +275,7 @@ function createActStats (timeline : TimelineSettings) : string {
     timeline.actStats.forEach((value) => {
         const pageString = value.pages == 1 ? 'page' : 'pages';
         const sceneString = value.scenes == 1 ? 'scene' : 'scenes';
-        actStats += `- Act ${value.name} : ${value.scenes} ${sceneString}, ${value.pages} ${pageString}\n`
+        actStats += `- Act ${value.name} : ${value.scenes} ${sceneString}, ${value.pages.toFixed(2)} ${pageString}\n`
     });
     return actStats;
 }

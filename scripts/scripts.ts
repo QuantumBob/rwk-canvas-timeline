@@ -2,14 +2,13 @@ import RwkCanvasTimelinePlugin, { TimelineSettings } from "main";
 import { FileManager, TFile, Vault } from "obsidian";
 // google dev-tools filter -source:violation -url:plugin:hot-reload
 
-/**
- * The interface for the Node data type
+/** The interface for the Node data type
  * This is related to the canvas file's json nodes 
  * and adds info about the page it refers to.
- *
+ * 
  * @interface Node
  */
-interface Node {
+export interface Node {
     id: string;
     type: string;
     x: number;
@@ -18,76 +17,109 @@ interface Node {
     height: number;
     label: string;
     pageCount: number;
+    act: string;
     file: string;
+    canvas: string;
     basename: string;
 }
-/**
- * Quick interface to store and pass
- * the json object data
- *
+
+/** Quick interface to store and pass the json object data
+ * 
  * @interface JsonObject
  */
 interface JsonObject {
     nodes: Node[];
 }
-/**
- * Main entry point for updating the timeline table
- *
+
+export async function initTimelines(plugin: RwkCanvasTimelinePlugin) {
+        
+    plugin.settings.timelines.forEach(async timeline => {
+        const jsonObject = await getJsonObject(plugin.app.vault, timeline);
+        updateHeadingsAndProperties(timeline);
+        const rows = await sortCards(plugin.app.vault, plugin.app.fileManager, jsonObject, timeline);
+        await createMarkdownTable(plugin.app.vault, timeline, rows);
+    });
+    plugin.settings.initializing = false;
+}
+/** updates the table used as a timeline
+ *  
  * @export
  * @async
  * @param {RwkCanvasTimelinePlugin} plugin 
  * @param {(TFile | null)} file 
  */
-export async function updateTimeline (plugin: RwkCanvasTimelinePlugin, file: TFile | null) {
+export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, timeline: TimelineSettings) {// file: TFile) {// | null) {
 
-    let timeline: undefined | TimelineSettings;
-    if (file?.extension == 'md') {
-        timeline = plugin.settings.timelines.find(timeline => timeline.notePath === file?.path);
-    }
-    else if (file?.extension == 'canvas') {
-        timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === file?.path);
-    }
-    if (!timeline) return;
-    
-    updateHeadingsAndProperties(timeline)
+    if ( plugin.settings.updateRunning) 
+        return;
+
+    plugin.settings.updateRunning = true;
+
     const jsonObject = await getJsonObject(plugin.app.vault, timeline);
+    updateHeadingsAndProperties(timeline);
     const rows = await sortCards(plugin.app.vault, plugin.app.fileManager, jsonObject, timeline);
     await createMarkdownTable(plugin.app.vault, timeline, rows);
+    plugin.settings.updateRunning = false;
 }
-/**
- * More detailed version of updateTimeline
- * Main entry point for updating the timeline table
+/** looks at which files are open, just closed and sets the flags in the settings
  *
- * @export
- * @async
  * @param {RwkCanvasTimelinePlugin} plugin 
- * @param {(TFile | null)} file  
+ * @param {(TFile | null)} file 
+ * @param {(TimelineSettings | undefined)} timeline 
  */
-export async function updateTimeline2 (plugin: RwkCanvasTimelinePlugin, file: TFile | null) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function setFileChanges(plugin: RwkCanvasTimelinePlugin, fileExtension: string, timeline: TimelineSettings | undefined) {
 
-    let timeline: undefined | TimelineSettings;
-    if (file?.extension == 'md')
-        timeline = plugin.settings.timelines.find(timeline => timeline.notePath === file?.path);
-    else if (file?.extension == 'canvas')
-        timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === file?.path);
-    if (!timeline) return;
-
-    const cards: Node[] = [];
-    const groups: Node[] = [];
-    const rows: Node[] = [];
-    const allCardIds = new Set<string>();
-    const groupedCardIds = new Set<string>();
+    const settings = plugin.settings;
     
-    updateHeadingsAndProperties(timeline)
-    const jsonObject = await getJsonObject(plugin.app.vault, timeline);
-    seperateNodes(jsonObject, groups, cards, allCardIds);
-    await groupCards(plugin.app.vault, plugin.app.fileManager, timeline, groups, cards, rows, groupedCardIds);
-    if (timeline.showUngrouped) 
-        processUngroupedCards(plugin.app.vault, plugin.app.fileManager, timeline, cards, rows, allCardIds, groupedCardIds)
-    await createMarkdownTable(plugin.app.vault, timeline, rows);
+    if (fileExtension == 'md') {
+        if (timeline) {
+            settings.tableOpened = true;
+            settings.timelineOpened = false;
+            if (plugin.app.workspace.getLastOpenFiles()[0].includes(timeline.canvasPath))
+                settings.timelineJustClosed = true;
+            else
+                settings.timelineJustClosed = false;
+        }
+    } else if (fileExtension == 'canvas') {
+        if (timeline) {
+            settings.timelineOpened = true;
+            settings.timelineJustClosed = false;
+            settings.tableOpened = false;
+        }
+    }
+    if (!timeline) {
+        if(settings.timelineOpened)
+            settings.timelineJustClosed = true;
+        else
+            settings.timelineJustClosed = false;
+
+        settings.tableOpened = false;
+        settings.timelineOpened = false;
+    }
 }
-/**
- * Seperate out the headings and properties for the timeline table
+/** Description placeholdergets the timeline from the file parameter 
+ * if the file is registered in the timeline plugin settings
+ *
+ * @param {RwkCanvasTimelinePlugin} plugin 
+ * @param {(TFile | null)} file 
+ * @returns {(TimelineSettings | undefined)} 
+ */
+export async function getTimeline(plugin: RwkCanvasTimelinePlugin, file: TFile | null) : Promise<TimelineSettings | undefined> {
+
+    let timeline: undefined | TimelineSettings = undefined;
+
+    if (file?.extension == 'md') {
+        await plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {
+                timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === frontmatter['canvas'])
+            });
+    }
+    else if (file?.extension == 'canvas') 
+        timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === file?.path);
+    
+    return timeline;
+}
+/** Seperate out the headings and properties for the timeline table
  *
  * @param {TimelineSettings} timeline 
  */
@@ -99,9 +131,8 @@ function updateHeadingsAndProperties(timeline: TimelineSettings) {
         timeline.headings.push(element);
         timeline.properties.push(element.toLowerCase().trim());
     });
-}
-/**
- * Gets the JSON from the file
+} 
+/** Gets the JSON from the file
  *
  * @async
  * @param {Vault} vault 
@@ -112,7 +143,7 @@ async function getJsonObject (vault: Vault, timeline: TimelineSettings) : Promis
 
     const canvasFile = vault.getFileByPath(timeline.canvasPath);
     let jsonString = "";
-
+ 
     if (canvasFile) {
         jsonString = await vault.cachedRead(canvasFile);
     }
@@ -123,141 +154,9 @@ async function getJsonObject (vault: Vault, timeline: TimelineSettings) : Promis
         return JSON.parse('');
     }
 }
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-/**
- * Seperate the Json Object into groups and cards 
- * Collects all the card ids
- *
- * @async
- * @param {JsonObject} jsonObject 
- * @param {Node[]} groups 
- * @param {Node[]} cards 
- * @param {Set<string>} allCardIds 
- */
-async function seperateNodes (jsonObject: JsonObject, groups: Node[], cards: Node[], allCardIds: Set<string>) {
-
-    for (const node of jsonObject.nodes) {
-        if (node.type === 'file') {
-            cards.push(node);
-            allCardIds.add(node.id);
-        }
-        if (node.type === 'group') groups.push(node);
-    }
-
-    groups.sort((a, b) => a.x - b.x);// left to right
-}
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-/**
- * Sorts the cards into by which group they are in
- *
- * @async
- * @param {Vault} vault 
- * @param {FileManager} fileManager 
- * @param {TimelineSettings} timeline 
- * @param {Node[]} groups 
- * @param {Node[]} cards 
- * @param {Node[]} rows 
- * @param {Set<string>} groupedCardIds 
- */
-async function groupCards (vault: Vault, fileManager: FileManager, timeline:TimelineSettings, groups: Node[], cards: Node[], rows: Node[], groupedCardIds: Set<string>) {
-
-    for (const group of groups) {
-
-        const minX = group.x;
-        const maxX = group.x + group.width;
-        const minY = group.y;
-        const maxY = group.y + group.height;
-        const cardsInGroup = cards
-            .filter(card => {
-                const inRange = card.x >= minX && card.x <= maxX && card.y >= minY && card.y <= maxY;
-                const notGrouped = !groupedCardIds.has(card.id);
-                return inRange && notGrouped;
-            })
-            .map(card => {
-                groupedCardIds.add(card.id);
-                card.label = group.label?.toLowerCase() ?? 'unknown';
-                return card;
-            })
-            .sort((a, b) => a.y - b.y || a.x - b.x);
-        
-        for (const card of cardsInGroup) {
-            const cardFile = vault.getFileByPath(card.file);
-            if (!cardFile) continue;
-
-            await fileManager.processFrontMatter(cardFile, (frontmatter: Record<string, string>) => {
-                for (const [index, property] of timeline.properties.entries()) {
-                    if (!property?.length) continue;
-                    if (timeline.titleHeadingIndex == index) continue;
-                    if (!(property in frontmatter)) {
-                        frontmatter[property] = 'none';
-                    } else {
-                        Object.assign(card, {[property]: frontmatter[property]})
-                    }
-                }
-            });
-
-            card.basename = cardFile.basename ?? 'none';
-            card.pageCount = timeline.showPageCount ? await pageCount(vault, cardFile): -1;
-
-            if(!timeline.ignoreGroups.toLowerCase().trim().contains(card.label)){
-                rows.push(card);
-            }
-        }
-    }
-}
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-/**
- * If the setting to process ungrouped cards is true
- * adds them to the end of the rows array
- *
- * @async
- * @param {Vault} vault 
- * @param {FileManager} fileManager 
- * @param {TimelineSettings} timeline 
- * @param {Node[]} cards 
- * @param {Node[]} rows 
- * @param {Set<string>} allCardIds 
- * @param {Set<string>} groupedCardIds 
- */
-async function processUngroupedCards (vault: Vault, fileManager: FileManager, timeline:TimelineSettings, cards: Node[], rows: Node[], allCardIds: Set<string>, groupedCardIds: Set<string>) {
-
-    // const ungroupedCardIds = allCardIds.difference(groupedCardIds);
-    const ungroupedCardIds = allCardIds;
-    for(const element of groupedCardIds){
-        ungroupedCardIds.delete(element);
-    }
-
-    const ungroupedCards = cards
-        .filter(card => {
-            const found = ungroupedCardIds.has(card.id);
-            return found;
-        });
-
-    for (const card of ungroupedCards){
-        const cardFile = vault.getFileByPath(card.file);
-        if (!cardFile) continue;
-        await fileManager.processFrontMatter(cardFile, (frontmatter: Record<string, string>) => {
-            for (const [index, property] of timeline.properties.entries()) {
-                if (!property?.length) continue;
-                if (timeline.titleHeadingIndex == index) continue;
-                if (!(property in frontmatter)) {
-                    frontmatter[property] = 'none';
-                } else {
-                    Object.assign(card, {[property]: frontmatter[property]})
-                }
-            }
-        });
-
-        card.basename = cardFile.basename ?? 'none';
-        card.label = 'no group';
-        card.pageCount = timeline.showPageCount ? await pageCount(vault, cardFile): -1;
-        rows.push(card);
-    }
-}
-/**
- * All in one function to sort the cards and groups
+/** All in one function to sort the cards and groups
  * This is currently working
- *
+ * 
  * @async
  * @param {Vault} vault 
  * @param {FileManager} fileManager 
@@ -270,6 +169,9 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
     const cards: Node[] = [];
     const groups: Node[] = [];
 
+    timeline.totalPageCount = 0;
+    timeline.actStats = [];
+
     const groupedCardIds = new Set<string>();
     const allCardIds = new Set<string>();
     const rows: Node[] = [];
@@ -308,6 +210,7 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
             if (!cardFile) continue;
 
             await fileManager.processFrontMatter(cardFile, (frontmatter: Record<string, string>) => {
+                frontmatter['canvas'] = timeline.canvasPath;
                 for (const [index, property] of timeline.properties.entries()) {
                     if (!property?.length) continue;
                     if (timeline.titleHeadingIndex == index) continue;
@@ -320,7 +223,24 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
             });
 
             card.basename = cardFile.basename ?? 'none';
-            card.pageCount = timeline.showPageCount ? await pageCount(vault, cardFile): -1;
+            
+            card.canvas = timeline.canvasPath ?? 'none';
+
+            const pageCount = timeline.showPageCount ? await getPageCount(vault, cardFile, timeline.wordsPerPage): 0;
+            card.pageCount = parseFloat(pageCount.toFixed(2));
+            timeline.totalPageCount += card.pageCount;
+
+            if('act' in card) {
+                const index = timeline.actStats.findIndex(element => {
+                    return element.name === card.act;
+                });
+                if (index === -1){
+                    timeline.actStats.push({'name': card.act, 'pages': card.pageCount, 'scenes': 1 });
+                } else {
+                    timeline.actStats[index].pages += pageCount;
+                    timeline.actStats[index].scenes += 1;
+                }
+            }
 
             if(!timeline.ignoreGroups.toLowerCase().trim().contains(card.label)){
                 rows.push(card);
@@ -329,7 +249,6 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
     }
 
     if (timeline.showUngrouped) {
-        // const ungroupedCardIds = allCardIds.difference(groupedCardIds);
         const ungroupedCardIds = allCardIds;
         for(const element of groupedCardIds){
             ungroupedCardIds.delete(element);
@@ -345,28 +264,61 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
             const cardFile = vault.getFileByPath(card.file);
             if (!cardFile) continue;
             await fileManager.processFrontMatter(cardFile, (frontmatter: Record<string, string>) => {
+                frontmatter['canvas'] = timeline.canvasPath;
                 for (const [index, property] of timeline.properties.entries()) {
                     if (!property?.length) continue;
                     if (timeline.titleHeadingIndex == index) continue;
                     if (!(property in frontmatter)) {
                         frontmatter[property] = 'none';
                     } else {
-                        Object.assign(card, {[property]: frontmatter[property]})
+                        Object.assign(card, {[property]: frontmatter[property].toString()})
                     }
                 }
             });
 
             card.basename = cardFile.basename ?? 'none';
+            
+            card.canvas = timeline.canvasPath ?? 'none';
+            
             card.label = 'no group';
-            card.pageCount = timeline.showPageCount ? await pageCount(vault, cardFile): -1;
+            const pageCount = timeline.showPageCount ? await getPageCount(vault, cardFile, timeline.wordsPerPage) : 0;
+            card.pageCount = parseFloat(pageCount.toFixed(2));
+
+            if('act' in card) {
+                const index = timeline.actStats.findIndex(element => {
+                    return element.name === card.act;
+                });
+                if (index === -1){
+                    timeline.actStats.push({'name': card.act, 'pages': card.pageCount, 'scenes': 1 });
+                } else {
+                    timeline.actStats[index].pages += pageCount;
+                    timeline.actStats[index].scenes += 1;
+                }
+            }
+            timeline.totalPageCount += card.pageCount;
             rows.push(card);
         }
     }
     return rows;
 }
-/**
- * Takes the array of rows and generates a markdown table
+/** creates a string for the statistics for each act
  *
+ * @param {TimelineSettings} timeline 
+ * @returns {string} 
+ */
+function createActStats (timeline : TimelineSettings) : string {
+
+    let actStats = "";
+    timeline.actStats.sort((a, b) => ('' + a.name).localeCompare(b.name));
+    timeline.actStats.forEach((value, key) => {
+        const pageString = value.pages == 1 ? 'page' : 'pages';
+        const sceneString = value.scenes == 1 ? 'scene' : 'scenes';
+        actStats += `- Act ${value.name} : ${value.scenes} ${sceneString}, ${value.pages} ${pageString}\n`
+    });
+    return actStats;
+}
+/** Takes the array of rows and generates a markdown table
+ * 
  * @async
  * @param {Vault} vault 
  * @param {TimelineSettings} timeline 
@@ -378,6 +330,11 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
     const headingClass = 'rwk-heading';
     if (!tableFile) return;
     if (timeline.headings.length == 0) return;
+
+    const tableStart = `###### Table start`;
+    const tableEnd = `###### Table end`;
+
+    const actStats = timeline.showActStats ? createActStats(timeline) : "";
 
     let tableHeadingRow = '|';
     let tableDividerRow = '|';
@@ -397,8 +354,9 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
         tableHeadingRow += timeline.groupHeading.length > 0 ? timeline.groupHeading + '|' : 'Group|';
         tableDividerRow += '---|';
     }
+
     if (timeline.showPageCount) {
-        tableHeadingRow += 'Page Count|';
+        tableHeadingRow += `Page Count: ${timeline.totalPageCount.toFixed(2)}|`;
         tableDividerRow += '---|';
     }
        
@@ -430,34 +388,35 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
         return row;
     });
 
-    const finalOutput = `${tableHeadingRow}\n${tableDividerRow}\n${outputRows.join('\n')}`  + '\n';
+    const finalOutput = `${tableStart}\n\n${getTime()}\n${actStats}\n${tableHeadingRow}\n${tableDividerRow}\n${outputRows.join('\n')}\n${tableEnd}`;
 
     await vault.process(tableFile, data => {
-        const regex = /(\|.*?\|\n)+/g;
-        // const regex = /\|[\|\w\n\s-<=">\[\]/:\.]+\|/
+
+        // regex =/(\|.*?\|\n)+/g;
+        // regex = /(\|.*?\|\n)+(.*?pages\n)+/g;
+        const regex = /(###### Table start)(.*?\n)+(###### Table end)/;
         const matches = data.match(regex);
         if (matches == null || matches.length == 0) {
             vault.append(tableFile, finalOutput);
             return data;
-        } else
+        } else {
             return data.replace(regex, finalOutput);
+        }
     });
 }
-/**
- * Counts the number of words in the given file and 
+/** Counts the number of words in the given file and 
  * converts that to pages by dividing by 'wordsperPage'
  *
  * @async
  * @param {Vault} vault 
  * @param {TFile} file 
- * @returns {Promise<number>} 
  */
-async function pageCount (vault: Vault, file: TFile): Promise<number> {
+async function getPageCount (vault: Vault, file: TFile, wordsPerPage: number) {
     //\b\w+\b/g
     //---(.|\n)*---((.|\n)*)
     //---((.|\n)*)---((.|\n)*)
     //(---(.|\n)*---)((.|\n)*)(### Act \d)((.|\n)*)
-    const wordsperPage = 250;
+    const wordsperPage = wordsPerPage == null ? 250 : wordsPerPage;
     let content: string;
     if (file == null) {
         content = "";
@@ -465,26 +424,28 @@ async function pageCount (vault: Vault, file: TFile): Promise<number> {
     } else {
         content = await vault.cachedRead(file);
     }
-    const matches = content.match(/(---(.|\n)*---)((.|\n)*)(### Act \d|Prologue)((.|\n)*)/);
+    const matches = content.match(/(---(.|\n)*---)((.|\n)*)(### Act +\d|Prologue)((.|\n)*)/);
     let words;
     if (matches == null) return 0;
     if(matches.length > 4) {
         words =  matches[6].match(/\S+/g);
     }
-    return words == null ? 0 : words.length/wordsperPage;
+    const pageCount = words == null ? 0 : words.length/wordsperPage;
+    return pageCount;
 }
-/**
- * Returns a simple date of now as a string
+/** Returns a simple get time function as a string
+ * 
  *
  * @returns {string} 
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getTime(): string {
     const date = new Date();
-    return date.getHours().toString() + ' : ' + date.getMinutes().toString();
+    // return date.getHours().toString() + ' : ' + date.getMinutes().toString();
+    return `${date.getHours()} : ${date.getMinutes()} : ${date.getSeconds()}`;
 }
-/**
- * Gets the number of words in the given string
+/** Gets the number of words in the given string
+ * 
  *
  * @param {string} text 
  * @returns {number} 

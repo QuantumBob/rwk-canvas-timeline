@@ -26,17 +26,18 @@ Fill in the headings for the table
 
 Put the 'timeline table rows.css' file into snippets and enable it to colour the rows based on frontmatter property selected in the RWK Timeline settings tab. The property in the frontmatter must have the same text as the class in the 'timeline table rows.css' file, without the period (.). Choose which heading to choose the colour from.
 
-For example:- 
+For example:-
 
-1. Heading 2 is POV. 
+1. Heading 2 is POV.
 2. Put 2 in 'What number heading is the colour scheme on?'
 3. All the notes on the canvas will now gain a 'pov' (in lowercase) frontmatter property.
 4. Add names/text to the value of these properties in all the notes.
 5. Add a class with the same name as in step 4 in 'timeline table rows.css' and choose a colour for it.
 
-The group labels can be added to the table with the 'Show groups in table' toggle. Add a different name to the input box if needed.
+The group labels can be added to the table with the 'Show groups in table' toggle. Add a different name to the input box if needed. Group labels must be one word (no spaces).
 
 The page count (based on 250 words per page) can be shown on the table with the 'Show Page Count' toggle.
 
+Cards that are not in a group can be added to the bottom of the table with the 'Show Ungrouped Cards' toggle.
 
-
+To exclude a group from the table add its label to the 'Ignore groups with these label' input box. Seperate each group label with a comma or a space. Group labels must be one word (no spaces).

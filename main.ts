@@ -1,13 +1,30 @@
 import { App, FileSystemAdapter, Plugin, PluginSettingTab, Setting, TextComponent, TFile } from 'obsidian';
 import { CanvasFileSuggest, MarkdownFileSuggest } from 'scripts/inputSuggest';
-import { updateTimeline } from 'scripts/scripts';
+import { getTimeline, initTimelines, updateTimeline } from 'scripts/scripts';
 
+/** Act interface to store act statistics
+ *
+ * @interface Act
+ * @typedef {Act}
+ */
+interface Act {
+    name: string;
+	pages: number;
+    scenes: number;
+}
+/** Timeline interface object
+ *
+ * @export
+ * @interface TimelineSettings
+ * @typedef {TimelineSettings}
+ */
 export interface TimelineSettings {
 	canvasPath: string;
 	notePath: string;
 	headingsAndProperties: string[];
 	headings: string[];
 	properties: string[];
+	// rows: Node[];
 	titleHeadingIndex: number;
 	colourHeaderIndex: number;
 	showPageCount: boolean;
@@ -16,63 +33,133 @@ export interface TimelineSettings {
 	showUngrouped: boolean;
 	groupHeading: string;
 	ignoreGroups: string;
+	wordsPerPage: number;
+	totalPageCount: number;
+	dirtyActStats: boolean;
+	actsPageCount: Map<string, number>;
+	actStats: Act[];
+	showActStats: boolean;
 }
+/** Plugin interface object
+ *
+ * @interface RwkCanvasTimelineSettings
+ * @typedef {RwkCanvasTimelineSettings}
+ */
 interface RwkCanvasTimelineSettings {
 	timelines: TimelineSettings[];
-	suggestText: string;
+	lastIndex: number;
+	defaultWordsPerPage: number;
+	timelineOpened: boolean;
+	tableOpened: boolean;
+	noteOpened: boolean;
+	timelineJustClosed: boolean;
+	updateRunning: boolean;
+	initializing: boolean;
 }
-
+/** Default plugin settings
+ *
+ * @type {RwkCanvasTimelineSettings}
+ */
 const DEFAULT_SETTINGS: RwkCanvasTimelineSettings = {
 	timelines: new Array<TimelineSettings>,
-	suggestText: ''
+	lastIndex: 0,
+	defaultWordsPerPage: 250,
+	timelineOpened: false,
+	tableOpened: false,
+	noteOpened: false,
+	timelineJustClosed: false,
+	updateRunning: false,
+	initializing: false
+}
+/** Default timeline settings
+ *
+ * @type {TimelineSettings}
+ */
+const DEFAULT_TIMELINE: TimelineSettings = {
+	canvasPath: "",
+	notePath: "",
+	headingsAndProperties: [],
+	headings: [],
+	properties: [],
+	titleHeadingIndex: -1,
+	colourHeaderIndex: -1,
+	showPageCount: false,
+	showRowNumbers: false,
+	showGroups: false,
+	showUngrouped: false,
+	groupHeading: "",
+	ignoreGroups: "",
+	wordsPerPage: 250,
+	totalPageCount: -1,
+	dirtyActStats: false,
+	actsPageCount: new Map(),
+	actStats: [],
+	showActStats: false
 }
 
+/** The main class for the timmline plugin
+ *
+ * @export
+ * @class RwkCanvasTimelinePlugin
+ * @typedef {RwkCanvasTimelinePlugin}
+ * @extends {Plugin}
+ */
 export default class RwkCanvasTimelinePlugin extends Plugin {
 	settings!: RwkCanvasTimelineSettings;
 			
 	async onload() {
+		
 		await this.loadSettings();
 		
-		// This adds a settings tab
+		// Add a settings tab to the plugin
 		this.addSettingTab(new RwkCanvasTimelineSettingTab(this.app, this));
-		this.registerEvent(this.app.vault.on('modify', file => {
-			if (file == null) return;
-			if (file instanceof TFile) {
-				if ((file as TFile).extension != 'canvas') return;
-				updateTimeline(this, file);
+
+		// The modify event for a note or canvas. Calls updateTimeline 
+		this.registerEvent(this.app.vault.on('modify', async file => {
+		    if (this.settings.initializing) return;
+			if(file instanceof TFile){					 
+					const timeline = await getTimeline(this, file);
+					if (!timeline) 
+						return;
+					await updateTimeline(this, timeline);//file);
 			}
 		}));
-		this.registerEvent(this.app.workspace.on('file-open', file => {
-			if (file == null) return;
-				if (file.extension != 'md') return;
-				updateTimeline(this, file);
-		}));
+		this.app.workspace.onLayoutReady(async () => {
+			this.settings.initializing = true;
+			await initTimelines(this);
+		})
+		
 	}
+	
 	onunload() {}
+
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 	}
+
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
+
 	addNewTimeline() {
-    	console.log ('adding new timeline');
-		this.settings.timelines.push({canvasPath: '', notePath: '', headingsAndProperties: [], headings: [], properties: [], titleHeadingIndex: 0, colourHeaderIndex: 2, showPageCount: false, showRowNumbers: false, showGroups:false, showUngrouped: false, groupHeading: '', ignoreGroups: ''});
+		this.settings.lastIndex = this.settings.timelines.length == 0 ? 0 : this.settings.timelines.length - 1;
+		this.settings.timelines.push(DEFAULT_TIMELINE);
 	}
+
 	deleteTimeline(index: number) {
-		console.log ('deleting timeline at index: ' + index);
 		this.settings.timelines.splice(index, 1);
+		this.settings.lastIndex = this.settings.timelines.length == 0 ? 0 : this.settings.timelines.length - 1;
 	}
+
 	addNewHeading(index: number) {
-		console.log('adding new heading');
 		this.settings.timelines[index].headingsAndProperties.push('');
 	}
+
 	deleteHeading(index: number) {
-		console.log('deleting last heading');
 		this.settings.timelines[index].headingsAndProperties.pop();
 	}
+
 	async copyCssFolder() {
-		console.log('copying css folder to clipboard');
 		const pathString = '/.obsidian/snippets/';
 		let adapter = this.app.vault.adapter;
 		if (adapter instanceof FileSystemAdapter) {
@@ -81,6 +168,12 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 	}
 }
 
+/** The settings class for this plugin
+ *
+ * @class RwkCanvasTimelineSettingTab
+ * @typedef {RwkCanvasTimelineSettingTab}
+ * @extends {PluginSettingTab}
+ */
 class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 	plugin: RwkCanvasTimelinePlugin;
 
@@ -234,7 +327,7 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			)
 			new Setting(divTimeline)
 			.setName('What number heading is the colour scheme on?')
-			.setTooltip('leave blank for none')
+			.setTooltip('Leave blank for none')
 			.addText(text => text
 				.setValue((this.plugin.settings.timelines[timelineIndex].colourHeaderIndex + 1).toString())
 				.onChange(async value => {
@@ -244,16 +337,27 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			)
 			new Setting(divTimeline)
 			.setName('Show Row Numbers')
+			.setTooltip('Adds a number to each row')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.timelines[timelineIndex].showRowNumbers)
-				.setTooltip('Add a number to each row')
+				.setTooltip('Adds a number to each row')
 				.onChange(async value => {
 					this.plugin.settings.timelines[timelineIndex].showRowNumbers =  value;
 					await this.plugin.saveSettings();
 				})
 			)
-			new Setting(divTimeline)
+			const pageCountControl = new Setting(divTimeline);
+			pageCountControl
 			.setName('Show Page Count')
+			.setDesc('Add number of words per page. Defaults to 250')
+			.setTooltip('Leave blank for default - 250 words per page')
+			.addText(text => text
+				.setValue(this.plugin.settings.timelines[timelineIndex].wordsPerPage == undefined ? this.plugin.settings.defaultWordsPerPage.toString() : this.plugin.settings.timelines[timelineIndex].wordsPerPage.toString())
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].wordsPerPage = value == '' ? this.plugin.settings.defaultWordsPerPage : parseInt(value);
+					await this.plugin.saveSettings();
+				})
+			)
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.timelines[timelineIndex].showPageCount)
 				.setTooltip('The page count will be added as the last column to the table')
@@ -262,10 +366,18 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				})
 			)
+			
 			new Setting(divTimeline)
-			.setName('Show groups in table')
+			.setName('Show Groups Column')
 			.setDesc('Optionally give the column a title')
-			.setTooltip('leave blank for none')
+			.setTooltip('Leave blank for none')
+			.addText(text => text
+				.setValue(this.plugin.settings.timelines[timelineIndex].groupHeading)
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].groupHeading = value;
+					await this.plugin.saveSettings();
+				})
+			)
 			.addToggle(toggle => toggle 
 				.setValue(this.plugin.settings.timelines[timelineIndex].showGroups)
 				.setTooltip('Toggle on and add a column heading name')
@@ -274,29 +386,19 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				})
 			)
-			.addText(text => text
-				.setValue(this.plugin.settings.timelines[timelineIndex].groupHeading)
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].groupHeading= value;
-					await this.plugin.saveSettings();
-				})
-			)
-
 			new Setting(divTimeline)
 			.setName('Show Ungrouped Cards')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.timelines[timelineIndex].showUngrouped)
-				.setTooltip('Add a number to each row')
 				.onChange(async value => {
 					this.plugin.settings.timelines[timelineIndex].showUngrouped =  value;
 					await this.plugin.saveSettings();
 				})
 			)
-
 			new Setting(divTimeline)
 			.setName('Ignore groups with these labels')
 			.setDesc('Seperate each group with a comma or a space')
-			.setTooltip('leave blank for none')
+			.setTooltip('Leave blank for none')
 			.addText(text => text
 				.setValue(this.plugin.settings.timelines[timelineIndex].ignoreGroups)
 				.onChange(async value => {
@@ -304,11 +406,25 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				})
 			)
+			new Setting(divTimeline)
+			.setName('Show Acts Stats')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.timelines[timelineIndex].showActStats)
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].showActStats =  value;
+					this.plugin.settings.timelines[timelineIndex].dirtyActStats = true;
+					await this.plugin.saveSettings();
+				})
+			)
 		}
 	}
-
 	hide(): void {
-		const file = this.app.workspace.getActiveFile();
-		updateTimeline(this.plugin, file);
+		if (this.plugin.settings.lastIndex < 0)
+			this.plugin.settings.lastIndex = 0;
+
+		for (let i = this.plugin.settings.lastIndex; i < this.plugin.settings.timelines.length; i++){
+			updateTimeline(this.plugin, this.plugin.settings.timelines[i]);
+		}
+		
 	}
 }

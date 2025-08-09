@@ -365,7 +365,7 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
         return row;
     });
 
-    const finalOutput = `${tableStart}\n\n${getTime()}\n\n${actStats}\n${tableHeadingRow}\n${tableDividerRow}\n${outputRows.join('\n')}\n${tableEnd}`;
+    const finalOutput = `${tableStart} - Updated at ${getTime()}\n\n${actStats}\n${tableHeadingRow}\n${tableDividerRow}\n${outputRows.join('\n')}\n${tableEnd}`;
 
     await vault.process(tableFile, data => {
 
@@ -418,7 +418,7 @@ async function getPageCount (vault: Vault, file: TFile, wordsPerPage: number) {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getTime(): string {
     const date = new Date();
-    return `Updated at ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
 }
 /** Gets the number of words in the given string
  *

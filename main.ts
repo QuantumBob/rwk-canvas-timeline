@@ -11,6 +11,7 @@ interface Act {
     name: string;
 	pages: number;
     scenes: number;
+	scenesWithPages: number;
 }
 /** Timeline interface object
  *

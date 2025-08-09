@@ -5,7 +5,7 @@
     border: 2px solid var(--background-modifier-border);
     padding: 5px;
     margin: 2px;
-}   
+}
 .right-justify {
     flex-wrap: wrap;
     justify-content: flex-end !important;

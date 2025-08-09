@@ -197,10 +197,11 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
                     return element.name === card.act;
                 });
                 if (index === -1){
-                    timeline.actStats.push({'name': card.act, 'pages': card.pageCount, 'scenes': 1 });
+                    timeline.actStats.push({'name': card.act, 'pages': card.pageCount, 'scenes': 1, 'scenesWithPages': pageCount > 0 ? 1 : 0});
                 } else {
                     timeline.actStats[index].pages += pageCount;
                     timeline.actStats[index].scenes += 1;
+                    timeline.actStats[index].scenesWithPages += pageCount > 0 ? 1 : 0;
                 }
             }
 
@@ -251,10 +252,11 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
                     return element.name === card.act;
                 });
                 if (index === -1){
-                    timeline.actStats.push({'name': card.act, 'pages': card.pageCount, 'scenes': 1 });
+                    timeline.actStats.push({'name': card.act, 'pages': card.pageCount, 'scenes': 1, 'scenesWithPages': pageCount > 0 ? 1 : 0});
                 } else {
                     timeline.actStats[index].pages += pageCount;
                     timeline.actStats[index].scenes += 1;
+                    timeline.actStats[index].scenesWithPages += pageCount > 0 ? 1 : 0;
                 }
             }
             timeline.totalPageCount += card.pageCount;
@@ -268,6 +270,7 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
  * @param {TimelineSettings} timeline
  * @returns {string}
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function createActStats (timeline : TimelineSettings) : string {
 
     let actStats = "";
@@ -275,28 +278,40 @@ function createActStats (timeline : TimelineSettings) : string {
     timeline.actStats.forEach((value) => {
         const pageString = value.pages == 1 ? 'page' : 'pages';
         const sceneString = value.scenes == 1 ? 'scene' : 'scenes';
-        actStats += `- Act ${value.name} : ${value.scenes} ${sceneString}, ${value.pages.toFixed(2)} ${pageString}\n`
+        const scenesWithPagesString = value.scenesWithPages == 1 ? 'scene' : 'scenes';
+        actStats += `- Act ${value.name} : ${value.scenes} ${sceneString} total. ${value.pages.toFixed(2)} ${pageString} in ${value.scenesWithPages} ${scenesWithPagesString}\n`
+    });
+    return actStats;
+}
+function createActStatsTable (timeline : TimelineSettings) : string {
+
+    let actStats = `\n|Act|Total Scenes|Pages|Scenes with Pages|\n|---|---|---|---|\n`;
+    timeline.actStats.sort((a, b) => ('' + a.name).localeCompare(b.name));
+    timeline.actStats.forEach((value) => {
+        actStats += `|<span class="table-dark-text table-opaque-row"></span>${value.name}|${value.scenes}|${value.pages.toFixed(2)}|${value.scenesWithPages}|\n`
     });
     return actStats;
 }
 /** Takes the array of rows and generates a markdown table
  *
  * @async
- * @param {Vault} vault 
- * @param {TimelineSettings} timeline 
- * @param {Node[]} rows 
+ * @param {Vault} vault
+ * @param {TimelineSettings} timeline
+ * @param {Node[]} rows
  */
 async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, rows: Node[]) {
 
     const tableFile = vault.getFileByPath(timeline.notePath);
-    const headingClass = 'rwk-heading';
+    // const headingClass = 'rwk-heading';
     if (!tableFile) return;
     if (timeline.headings.length == 0) return;
 
     const tableStart = `###### Table start`;
     const tableEnd = `###### Table end`;
 
-    const actStats = timeline.showActStats ? createActStats(timeline) : "";
+    // let actStats = timeline.showActStats ? createActStats(timeline) : "";
+    // actStats += timeline.showActStats ? createActStatsTable(timeline) : "";
+    const actStats = timeline.showActStats ? createActStatsTable(timeline) : "";
 
     let tableHeadingRow = '|';
     let tableDividerRow = '|';
@@ -306,7 +321,7 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
         tableDividerRow += '---|';
     }
 
-    tableHeadingRow += `<span class=${headingClass}></span>`;
+    // tableHeadingRow += `<span class=${headingClass}></span>`;
     for (const heading of timeline.headings) {
         tableHeadingRow += heading + '|';
         tableDividerRow += '---|';
@@ -350,7 +365,7 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
         return row;
     });
 
-    const finalOutput = `${tableStart}\n\n${getTime()}\n${actStats}\n${tableHeadingRow}\n${tableDividerRow}\n${outputRows.join('\n')}\n${tableEnd}`;
+    const finalOutput = `${tableStart}\n\n${getTime()}\n\n${actStats}\n${tableHeadingRow}\n${tableDividerRow}\n${outputRows.join('\n')}\n${tableEnd}`;
 
     await vault.process(tableFile, data => {
 
@@ -403,8 +418,7 @@ async function getPageCount (vault: Vault, file: TFile, wordsPerPage: number) {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getTime(): string {
     const date = new Date();
-    // return date.getHours().toString() + ' : ' + date.getMinutes().toString();
-    return `${date.getHours()} : ${date.getMinutes()} : ${date.getSeconds()}`;
+    return `Updated at ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
 }
 /** Gets the number of words in the given string
  *

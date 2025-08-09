@@ -5,13 +5,27 @@
 .canvas-table  .internal-link {
     color: white !important;
 }
+.markdown-rendered td {
+    color: #9f16a9 !important;
+}
 /*
- * Example colours for the table rows 
+* give any row of a table with this class a dark backround
+* overcomes the opacity issue of ITS theme
+*/
+tr:has(td):has(span):has(.table-dark-text) {
+    color: #333333 !important;
+}
+.markdown-rendered tbody tr:has(td):has(span):has(.table-opaque-row):nth-child(odd) {
+    background-color: #fae0be !important;
+}
+/*
+ * Example colours for the table rows
 */
 .alice, .bob, .cora, .other, .none{
     color:black;
     font-weight: bold;
-}tr:has(td):has(span):has(.none) {
+}
+tr:has(td):has(span):has(.none) {
     background-color: #9f16a9 !important;
 }
 tr:has(td):has(span):has(.other) {
@@ -24,5 +38,5 @@ tr:has(td):has(span):has(.bob) {
     background-color: #775FAE !important;
 }
 tr:has(td):has(span):has(.cora) {
-    background-color: #979653 !important;
+    background-color: #5d77de !important;
 }

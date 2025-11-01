@@ -17,6 +17,7 @@ export interface Node {
     height: number;
     label: string;
     pageCount: number;
+    wordCount: number;
     act: string;
     file: string;
     canvas: string;
@@ -31,7 +32,15 @@ interface JsonObject {
     nodes: Node[];
 }
 
+/** first initialisation of the timelines when plugin loads
+ *
+ * @export
+ * @async
+ * @param {RwkCanvasTimelinePlugin} plugin
+ */
 export async function initTimelines(plugin: RwkCanvasTimelinePlugin) {
+
+    // todaysPageCount(plugin);
 
     plugin.settings.timelines.forEach(async timeline => {
         const jsonObject = await getJsonObject(plugin.app.vault, timeline);
@@ -46,22 +55,43 @@ export async function initTimelines(plugin: RwkCanvasTimelinePlugin) {
  * @export
  * @async
  * @param {RwkCanvasTimelinePlugin} plugin
- * @param {(TFile | null)} file
  */
-export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, timeline: TimelineSettings) {// file: TFile) {// | null) {
+export async function updateTimeline(plugin: RwkCanvasTimelinePlugin, timeline: TimelineSettings) {
 
-    if ( plugin.settings.updateRunning)
-        return;
+    if ( plugin.settings.updateRunning) return;
 
     plugin.settings.updateRunning = true;
-
+    console.log("in update");
+    const scrollInfo = plugin.app.workspace.activeEditor?.editor?.getScrollInfo();
     const jsonObject = await getJsonObject(plugin.app.vault, timeline);
     updateHeadingsAndProperties(timeline);
     const rows = await sortCards(plugin.app.vault, plugin.app.fileManager, jsonObject, timeline);
-    await createMarkdownTable(plugin.app.vault, timeline, rows);
+    // if(timeline.tableView)
+        await createMarkdownTable(plugin.app.vault, timeline, rows);
+    // else
+    //     await createMarkdownPages(plugin.app.vault, timeline, rows);
+    // timeline.viewChanged = false;
+    // todaysPageCount(plugin);
+    // plugin.app.vault.getFileByPath(timeline.notePath)?
+    plugin.app.workspace.activeEditor?.editor?.scrollTo(scrollInfo?.left, scrollInfo?.top);
     plugin.settings.updateRunning = false;
 }
-/** Description placeholdergets the timeline from the file parameter 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function todaysPageCount(plugin: RwkCanvasTimelinePlugin) {
+
+    const settings = plugin.settings;
+
+    if(plugin.settings.initializing) {
+        const today = new Date();
+
+        if(today == settings.today) {
+            // already opened the plugin
+            settings.todayPageCount = settings.todayPageCount - settings.yesterdaysPageCount;
+        }
+    }
+    await plugin.saveSettings();
+}
+/** Description placeholdergets the timeline from the file parameter
  * if the file is registered in the timeline plugin settings
  *
  * @param {RwkCanvasTimelinePlugin} plugin
@@ -73,20 +103,56 @@ export async function getTimeline(plugin: RwkCanvasTimelinePlugin, file: TFile |
     let timeline: undefined | TimelineSettings = undefined;
 
     if (file?.extension == 'md') {
-        await plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {
-                timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === frontmatter['canvas'])
-            });
+
+        timeline = plugin.settings.timelines.find(timeline => timeline.notePath === file?.path);
+        if(timeline){
+            if(plugin.app.workspace.getLastOpenFiles()[0] == timeline.canvasPath){
+                await sleep(2000);
+            }
+        }
+        // await plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {
+        //         timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === frontmatter['canvas'])
+        //     });
     }
-    else if (file?.extension == 'canvas') 
-        timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === file?.path);
-    
+    // else if (file?.extension == 'canvas'){
+    //     timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === file?.path);
+    // }
     return timeline;
 }
+/** Description placeholdergets the timeline from the file parameter
+ * if the file is registered in the timeline plugin settings
+ *
+ * @param {RwkCanvasTimelinePlugin} plugin
+ * @param {(TFile | null)} file
+ * @returns {(TimelineSettings | undefined)}
+ */
+export async function getTimelineFromCanvas(plugin: RwkCanvasTimelinePlugin, file: TFile | null) : Promise<TimelineSettings | undefined> {
+
+    let timeline: undefined | TimelineSettings = undefined;
+
+    // if (file?.extension == 'md') {
+
+    //     timeline = plugin.settings.timelines.find(timeline => timeline.notePath === file?.path);
+    //     if(timeline){
+    //         if(plugin.app.workspace.getLastOpenFiles()[0] == timeline.canvasPath){
+    //             await sleep(2000);
+    //         }
+    //     }
+    //     // await plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {
+    //     //         timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === frontmatter['canvas'])
+    //     //     });
+    // }
+    if (file?.extension == 'canvas'){
+        timeline = plugin.settings.timelines.find(timeline => timeline.canvasPath === file?.path);
+    }
+    return timeline;
+}
+
 /** Seperate out the headings and properties for the timeline table
  *
  * @param {TimelineSettings} timeline
  */
-function updateHeadingsAndProperties(timeline: TimelineSettings) {
+export function updateHeadingsAndProperties(timeline: TimelineSettings) {
     timeline.headings = [];
     timeline.properties = [];
 
@@ -102,7 +168,7 @@ function updateHeadingsAndProperties(timeline: TimelineSettings) {
  * @param {TimelineSettings} timeline
  * @returns {Promise<JsonObject>}
  */
-async function getJsonObject (vault: Vault, timeline: TimelineSettings) : Promise<JsonObject> {
+export async function getJsonObject (vault: Vault, timeline: TimelineSettings) : Promise<JsonObject> {
 
     const canvasFile = vault.getFileByPath(timeline.canvasPath);
     let jsonString = "";
@@ -117,6 +183,27 @@ async function getJsonObject (vault: Vault, timeline: TimelineSettings) : Promis
         return JSON.parse('');
     }
 }
+/** Gets the JSON from the file
+ *
+ * @async
+ * @param {Vault} vault
+ * @param {TimelineSettings} timeline
+ * @returns {Promise<JsonObject>}
+ */
+// export async function getJsonObjectFromCanvas (vault: Vault, canvasFile: TFile) : Promise<JsonObject> {
+
+//     let jsonString = "";
+
+//     if (canvasFile) {
+//         jsonString = await vault.cachedRead(canvasFile);
+//     }
+//     try {
+//         return JSON.parse(jsonString);
+//     } catch (e) {
+//         console.error("Invalid JSON in canvas file:", e);
+//         return JSON.parse('');
+//     }
+// }
 /** All in one function to sort the cards and groups
  * This is currently working
  *
@@ -127,12 +214,16 @@ async function getJsonObject (vault: Vault, timeline: TimelineSettings) : Promis
  * @param {TimelineSettings} timeline
  * @returns {Promise<Node[]>}
  */
-async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: JsonObject, timeline: TimelineSettings): Promise<Node[]> {
+export async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: JsonObject, timeline: TimelineSettings): Promise<Node[]> {
 
     const cards: Node[] = [];
     const groups: Node[] = [];
 
+    timeline.totalWordCount = 0;
     timeline.totalPageCount = 0;
+    timeline.totalSceneCount = 0;
+    timeline.totalSceneWithPagesCount = 0;
+    timeline.emptyScenes = 0;
     timeline.actStats = [];
 
     const groupedCardIds = new Set<string>();
@@ -172,13 +263,15 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
             const cardFile = vault.getFileByPath(card.file);
             if (!cardFile) continue;
 
-            await fileManager.processFrontMatter(cardFile, (frontmatter: Record<string, string>) => {
+            // await fileManager.processFrontMatter(cardFile, (frontmatter: Record<string, string>) => {
+            await fileManager.processFrontMatter(cardFile, (frontmatter: Record<string, unknown>) => {
                 frontmatter['canvas'] = timeline.canvasPath;
+                // frontmatter['wordCount'] = wordCount;
                 for (const [index, property] of timeline.properties.entries()) {
                     if (!property?.length) continue;
                     if (timeline.titleHeadingIndex == index) continue;
                     if (!(property in frontmatter)) {
-                        frontmatter[property] = 'none';
+                        frontmatter[property] = property === 'act' ? -1 : 'none';
                     } else {
                         Object.assign(card, {[property]: frontmatter[property]})
                     }
@@ -188,7 +281,11 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
             card.basename = cardFile.basename ?? 'none';
             card.canvas = timeline.canvasPath ?? 'none';
 
-            const pageCount = timeline.showPageCount ? await getPageCount(vault, cardFile, timeline.wordsPerPage): 0;
+            // const pageCount = timeline.showPageCount ? await getPageCount(vault, cardFile, timeline.wordsPerPage): 0;
+            const pageCount = await getPageCount(vault, cardFile, timeline.wordsPerPage);
+            const wordCount = await getSimpleWordCount(vault, cardFile);
+            card.wordCount = wordCount;
+            timeline.totalWordCount += card.wordCount;
             card.pageCount = parseFloat(pageCount.toFixed(2));
             timeline.totalPageCount += card.pageCount;
 
@@ -198,10 +295,16 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
                 });
                 if (index === -1){
                     timeline.actStats.push({'name': card.act, 'pages': card.pageCount, 'scenes': 1, 'scenesWithPages': pageCount > 0 ? 1 : 0});
+                    timeline.totalSceneCount += 1;
+                    timeline.totalSceneWithPagesCount += pageCount > 0 ? 1 : 0;
+                    timeline.emptyScenes += wordCount === 0 ? 1 : 0;
                 } else {
                     timeline.actStats[index].pages += pageCount;
                     timeline.actStats[index].scenes += 1;
                     timeline.actStats[index].scenesWithPages += pageCount > 0 ? 1 : 0;
+                    timeline.totalSceneCount += 1;
+                    timeline.totalSceneWithPagesCount += pageCount > 0 ? 1 : 0;
+                    timeline.emptyScenes += wordCount === 0 ? 1 : 0;
                 }
             }
 
@@ -243,6 +346,9 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
 
             card.canvas = timeline.canvasPath ?? 'none';
 
+            const wordCount = await getSimpleWordCount(vault, cardFile);
+            card.wordCount = wordCount;
+
             card.label = 'no group';
             const pageCount = timeline.showPageCount ? await getPageCount(vault, cardFile, timeline.wordsPerPage) : 0;
             card.pageCount = parseFloat(pageCount.toFixed(2));
@@ -253,10 +359,16 @@ async function sortCards (vault: Vault, fileManager: FileManager, jsonObject: Js
                 });
                 if (index === -1){
                     timeline.actStats.push({'name': card.act, 'pages': card.pageCount, 'scenes': 1, 'scenesWithPages': pageCount > 0 ? 1 : 0});
+                    timeline.totalSceneCount += 1;
+                    timeline.totalSceneWithPagesCount += pageCount > 0 ? 1 : 0;
+                    timeline.emptyScenes += pageCount === 0 ? 1 : 0;
                 } else {
                     timeline.actStats[index].pages += pageCount;
                     timeline.actStats[index].scenes += 1;
                     timeline.actStats[index].scenesWithPages += pageCount > 0 ? 1 : 0;
+                    timeline.totalSceneCount += 1;
+                    timeline.totalSceneWithPagesCount += pageCount > 0 ? 1 : 0;
+                    timeline.emptyScenes += pageCount === 0 ? 1 : 0;
                 }
             }
             timeline.totalPageCount += card.pageCount;
@@ -281,15 +393,39 @@ function createActStats (timeline : TimelineSettings) : string {
         const scenesWithPagesString = value.scenesWithPages == 1 ? 'scene' : 'scenes';
         actStats += `- Act ${value.name} : ${value.scenes} ${sceneString} total. ${value.pages.toFixed(2)} ${pageString} in ${value.scenesWithPages} ${scenesWithPagesString}\n`
     });
+    const pagesPerScene = timeline.totalPageCount / timeline.totalSceneWithPagesCount;
+    const estimatedPages = pagesPerScene * timeline.totalSceneCount;
+
+
+    actStats += `- Pages / Scene = ${pagesPerScene.toFixed(2)}\n Estimated Total Pages = ${estimatedPages.toFixed(2)}`
     return actStats;
 }
+
+/** createActStatsTable
+ *
+ * @param {TimelineSettings} timeline
+ * @returns {string}
+ */
 function createActStatsTable (timeline : TimelineSettings) : string {
 
-    let actStats = `\n|Act|Total Scenes|Pages|Scenes with Pages|\n|---|---|---|---|\n`;
+    const wordCount = timeline.totalWordCount;
+    const pageCount = timeline.totalPageCount;
+    const pagesPerScene = timeline.totalPageCount / timeline.totalSceneWithPagesCount;
+    const estimatedPages = pagesPerScene * timeline.totalSceneCount;
+    const emptyScenes = timeline.emptyScenes;
+
+    let actStats = `|Act|Scenes|Pages|Scenes with Pages|\n|---|---|---|---|\n`;
     timeline.actStats.sort((a, b) => ('' + a.name).localeCompare(b.name));
-    timeline.actStats.forEach((value) => {
-        actStats += `|<span class="table-dark-text table-opaque-row"></span>${value.name}|${value.scenes}|${value.pages.toFixed(2)}|${value.scenesWithPages}|\n`
+    timeline.actStats.forEach((act) => {
+        actStats += `|<span class="table-dark-text table-opaque-row"></span>${act.name}|${act.scenes} (${((act.scenes/timeline.totalSceneCount)*100).toFixed(0)}%)|${act.pages.toFixed(2)} (${((act.pages/timeline.totalPageCount)*100).toFixed(0)}%)|${act.scenesWithPages}|\n`
     });
+
+    actStats += `|<span class="table-dark-text table-opaque-row"></span>Word count|${wordCount}|\n`;
+    actStats += `|<span class="table-dark-text table-opaque-row"></span>Page count|${pageCount.toFixed(2)}|\n`;
+    actStats += `|<span class="table-dark-text table-opaque-row"></span>Pages per scene|${pagesPerScene.toFixed(2)}|\n`;
+    actStats += `|<span class="table-dark-text table-opaque-row"></span>Estimated pages|${estimatedPages.toFixed(2)}|\n`
+    if(emptyScenes > 0)
+        actStats += `|<span class="table-dark-text table-opaque-row"></span>Empty scenes|${emptyScenes.toFixed(0)}|\n`
     return actStats;
 }
 /** Takes the array of rows and generates a markdown table
@@ -306,8 +442,12 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
     if (!tableFile) return;
     if (timeline.headings.length == 0) return;
 
+    // if(timeline.viewChanged)
+    //     removePreviousView(vault, tableFile, timeline);
+
     const tableStart = `###### Table start`;
     const tableEnd = `###### Table end`;
+    const top = `[[${timeline.notePath}#${tableStart}|top of page]]`;
 
     // let actStats = timeline.showActStats ? createActStats(timeline) : "";
     // actStats += timeline.showActStats ? createActStatsTable(timeline) : "";
@@ -332,12 +472,79 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
         tableDividerRow += '---|';
     }
 
+    if (timeline.showWordCount) {
+        tableHeadingRow += `Word Count|`;
+        tableDividerRow += '---|';
+    }
+
     if (timeline.showPageCount) {
-        tableHeadingRow += `Page Count: ${timeline.totalPageCount.toFixed(2)}|`;
+        // tableHeadingRow += `Page Count: ${timeline.totalPageCount.toFixed(2)}|`;
+        tableHeadingRow += `Page Count|`;
         tableDividerRow += '---|';
     }
 
     const outputRows: string[] = rows.map((data, index) => {
+        const colourProperty = timeline.properties[timeline.colourHeaderIndex];
+        let row = '';
+
+        if (timeline.showRowNumbers) {
+            row += '|' + (index + 1).toString();
+        }
+
+        row += `|<span class="${data[colourProperty as keyof Node] ?? ''}"></span>`;
+
+        timeline.properties.forEach((property, index) => {
+            if (index === timeline.titleHeadingIndex) {
+                row += `[[${data.basename}]]|`;
+            } else {
+                row += `${data[property as keyof Node] ?? 'none'}|`;
+            }
+        });
+
+        if (timeline.showGroups) {
+            row += `${data.label}|`;
+        }
+        if (timeline.showWordCount) {
+            row += `${data.wordCount}|`;
+        }
+        if (timeline.showPageCount) {
+            row += `${data.pageCount}|`;
+        }
+
+        return row;
+    });
+
+    const finalOutput = `${tableStart}\n###### Updated at ${getTime()}\n\n${actStats}\n${tableHeadingRow}\n${tableDividerRow}\n${outputRows.join('\n')}\n${top}\n${tableEnd}`;
+
+    await vault.process(tableFile, data => {
+
+        // regex =/(\|.*?\|\n)+/g;
+        // regex = /(\|.*?\|\n)+(.*?pages\n)+/g;
+        const regex = /(###### Table start)(.*?\n)+(###### Table end)/;
+        const matches = data.match(regex);
+        if (matches == null || matches.length == 0) {
+            vault.append(tableFile, finalOutput);
+            return data;
+        } else {
+            return data.replace(regex, finalOutput);
+        }
+    });
+}
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function createMarkdownPages(vault: Vault, timeline: TimelineSettings, rows: Node[]) {
+
+    const pageFile = vault.getFileByPath(timeline.notePath);
+    if (!pageFile) return;
+
+    if(timeline.viewChanged)
+        removePreviousView(vault, pageFile, timeline);
+
+    const pageStart = `###### Page start`;
+    const pageEnd = `###### Page end`;
+
+    const actStats = timeline.showActStats ? createActStatsTable(timeline) : "";
+
+        const outputRows: string[] = rows.map((data, index) => {
         const colourProperty = timeline.properties[timeline.colourHeaderIndex];
         let row = '';
 
@@ -365,19 +572,40 @@ async function createMarkdownTable (vault: Vault, timeline: TimelineSettings, ro
         return row;
     });
 
-    const finalOutput = `${tableStart} - Updated at ${getTime()}\n\n${actStats}\n${tableHeadingRow}\n${tableDividerRow}\n${outputRows.join('\n')}\n${tableEnd}`;
+    const finalOutput = `${actStats}\n${pageStart}\n###### Updated at ${getTime()}\n\n${outputRows.join('\n')}\n${top}\n${pageEnd}`;
 
-    await vault.process(tableFile, data => {
+    await vault.process(pageFile, data => {
 
         // regex =/(\|.*?\|\n)+/g;
         // regex = /(\|.*?\|\n)+(.*?pages\n)+/g;
         const regex = /(###### Table start)(.*?\n)+(###### Table end)/;
         const matches = data.match(regex);
         if (matches == null || matches.length == 0) {
-            vault.append(tableFile, finalOutput);
+            vault.append(pageFile, finalOutput);
             return data;
         } else {
             return data.replace(regex, finalOutput);
+        }
+    });
+}
+async function removePreviousView(vault: Vault, file: TFile, timeline: TimelineSettings) {
+
+    const tableStart = `###### Table start`;
+    const tableEnd = `###### Table end`;
+    const pageStart = `###### Page start`;
+    const pageEnd = `###### Page end`;
+
+    await vault.process(file, data => {
+        const regex = timeline.tableView ? /(###### Table start)(.*?\n)+(###### Table end)/ : /(###### Page start)(.*?\n)+(###### Page end)/;
+
+        const output = timeline.tableView ? `${tableStart}\n${tableEnd}` : `${pageStart}\n${pageEnd}`;
+
+        const matches = data.match(regex);
+        if (matches == null || matches.length == 0) {
+            vault.append(file, output);
+            return data;
+        } else {
+            return data.replace(regex, output);
         }
     });
 }
@@ -401,7 +629,7 @@ async function getPageCount (vault: Vault, file: TFile, wordsPerPage: number) {
     } else {
         content = await vault.cachedRead(file);
     }
-    const matches = content.match(/(---(.|\n)*---)((.|\n)*)(### Act +\d|Prologue)((.|\n)*)/);
+    const matches = content.match(/(---(.|\n)*---)((.|\n)*)(### Act|### Prologue)((.|\n)*)/);
     let words;
     if (matches == null) return 0;
     if(matches.length > 4) {
@@ -411,7 +639,7 @@ async function getPageCount (vault: Vault, file: TFile, wordsPerPage: number) {
     return pageCount;
 }
 /** Returns a simple get time function as a string
- * 
+ *
  *
  * @returns {string}
  */
@@ -419,6 +647,30 @@ async function getPageCount (vault: Vault, file: TFile, wordsPerPage: number) {
 function getTime(): string {
     const date = new Date();
     return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+}
+/** getSimpleWordCount
+ *
+ * @async
+ * @param {Vault} vault
+ * @param {TFile} file
+ */
+async function getSimpleWordCount(vault: Vault, file: TFile) {
+
+    let content: string;
+    if (file == null) {
+        content = "";
+    } else {
+        content = await vault.cachedRead(file);
+    }
+    // const matches = content.match(/(---(.|\n)*---)((.|\n)*)(### Act|### Prologue)((.|\n)*)/);
+    const matches = content.match(/(---(.|\n)*---)((.|\n)*)(### Act.*?\n|### Prologue.*?\n)((.|\n)*)/);
+    let words;
+    if (matches == null) return 0;
+    if(matches.length > 4) {
+        words =  matches[6].match(/\S+/g);
+        return words == null ? 0 : words.length;
+    }
+    return 0;
 }
 /** Gets the number of words in the given string
  *

@@ -1,7 +1,39 @@
 import { App, FileSystemAdapter, Plugin, PluginSettingTab, Setting, TextComponent, TFile } from 'obsidian';
 import { CanvasFileSuggest, MarkdownFileSuggest } from 'scripts/inputSuggest';
-import { getTimeline, initTimelines, updateTimeline } from 'scripts/scripts';
+import { getTimeline, getTimelineFromCanvas, initTimelines, updateTimeline } from 'scripts/scripts';
+import { collatePages, CollatePagesModal } from 'scripts/collatePages'
 
+/** Plugin interface object
+ *
+ * @interface RwkCanvasTimelineSettings
+ * @typedef {RwkCanvasTimelineSettings}
+ */
+interface RwkCanvasTimelineSettings {
+	timelines: TimelineSettings[];
+	lastIndex: number;
+	defaultWordsPerPage: number;
+	updateRunning: boolean;
+	initializing: boolean;
+	yesterday: Date;
+	yesterdaysPageCount: number;
+	today: Date;
+	todayPageCount: number;
+}
+/** Default plugin settings
+ *
+ * @type {RwkCanvasTimelineSettings}
+ */
+const DEFAULT_SETTINGS: RwkCanvasTimelineSettings = {
+	timelines: new Array<TimelineSettings>,
+	lastIndex: 0,
+	defaultWordsPerPage: 250,
+	updateRunning: false,
+	initializing: false,
+	yesterday: new Date(new Date().setDate(new Date().getDate()-1)),
+	yesterdaysPageCount: 0,
+	today: new Date(Date.now()),
+	todayPageCount: 0,
+}
 /** Act interface to store act statistics
  *
  * @interface Act
@@ -22,44 +54,29 @@ interface Act {
 export interface TimelineSettings {
 	canvasPath: string;
 	notePath: string;
+	collatedPagesPath: string;
+	tableView: boolean,
+	viewChanged: boolean;
 	headingsAndProperties: string[];
 	headings: string[];
 	properties: string[];
 	titleHeadingIndex: number;
 	colourHeaderIndex: number;
 	showPageCount: boolean;
+	showWordCount: boolean;
 	showRowNumbers: boolean;
 	showGroups: boolean;
 	showUngrouped: boolean;
 	groupHeading: string;
 	ignoreGroups: string;
 	wordsPerPage: number;
+	totalWordCount:number;
 	totalPageCount: number;
+	totalSceneCount: number;
+	totalSceneWithPagesCount: number;
+	emptyScenes: number;
 	actStats: Act[];
 	showActStats: boolean;
-}
-/** Plugin interface object
- *
- * @interface RwkCanvasTimelineSettings
- * @typedef {RwkCanvasTimelineSettings}
- */
-interface RwkCanvasTimelineSettings {
-	timelines: TimelineSettings[];
-	lastIndex: number;
-	defaultWordsPerPage: number;
-	updateRunning: boolean;
-	initializing: boolean;
-}
-/** Default plugin settings
- *
- * @type {RwkCanvasTimelineSettings}
- */
-const DEFAULT_SETTINGS: RwkCanvasTimelineSettings = {
-	timelines: new Array<TimelineSettings>,
-	lastIndex: 0,
-	defaultWordsPerPage: 250,
-	updateRunning: false,
-	initializing: false
 }
 /** Default timeline settings
  *
@@ -68,19 +85,27 @@ const DEFAULT_SETTINGS: RwkCanvasTimelineSettings = {
 const DEFAULT_TIMELINE: TimelineSettings = {
 	canvasPath: "",
 	notePath: "",
+	collatedPagesPath: "",
+	tableView: true,
+	viewChanged: false,
 	headingsAndProperties: [],
 	headings: [],
 	properties: [],
 	titleHeadingIndex: -1,
 	colourHeaderIndex: -1,
 	showPageCount: false,
+	showWordCount: false,
 	showRowNumbers: false,
 	showGroups: false,
 	showUngrouped: false,
 	groupHeading: "",
 	ignoreGroups: "",
 	wordsPerPage: 250,
-	totalPageCount: -1,
+	totalWordCount: 0,
+	totalPageCount: 0,
+	totalSceneCount: 0,
+	totalSceneWithPagesCount: 0,
+	emptyScenes: 0,
 	actStats: [],
 	showActStats: false
 }
@@ -99,24 +124,54 @@ export default class RwkCanvasTimelinePlugin extends Plugin {
 
 		await this.loadSettings();
 
+		// This adds a command that will collate the pages 
+		this.addCommand({
+			id: 'open-collate-pages-modal',
+			name: 'Open collate pages modal',
+			callback: async () => {
+				const file = this.app.workspace.getActiveFile();
+				if(!file) return;
+				const timeline = await getTimelineFromCanvas(this, file);
+				if (!timeline) return;
+				new CollatePagesModal(this.app, this, timeline, (folderPath) => {
+					const folder = this.app.vault.getFolderByPath(folderPath);
+					// const canvas = this.app.vault.getFileByPath(canvasPath)
+					if(!folder) return;
+					// if(!canvas) return;
+					collatePages(this, folder, timeline);
+				}).open();
+			}
+		});
+
 		// Add a settings tab to the plugin
 		this.addSettingTab(new RwkCanvasTimelineSettingTab(this.app, this));
 
 		// The modify event for a note or canvas. Calls updateTimeline
-		this.registerEvent(this.app.vault.on('modify', async file => {
-		    if (this.settings.initializing) return;
-			if(file instanceof TFile){
-					const timeline = await getTimeline(this, file);
-					if (!timeline)
-						return;
-					await updateTimeline(this, timeline);//file);
-			}
-		}));
+		// this.registerEvent(this.app.vault.on('modify', async file => {
+		//     if (this.settings.initializing) return;
+		// 	if(file instanceof TFile){
+		// 		console.log("in modify - before");
+		// 		const timeline = await getTimeline(this, file);
+		// 		if (!timeline) return;
+
+		// 		await updateTimeline(this, timeline);
+		// 		console.log("in modify - after");
+		// 	}
+		// }));
+
+		// The file-open event for a note or canvas. Calls updateTimeline
+		this.registerEvent(this.app.workspace.on('file-open', async file => {
+			if (this.settings.initializing) return;
+
+			const timeline = await getTimeline(this, file);
+			if (!timeline) return;
+
+			await updateTimeline(this, timeline);
+		}))
 		this.app.workspace.onLayoutReady(async () => {
 			this.settings.initializing = true;
 			await initTimelines(this);
 		})
-
 	}
 
 	onunload() {}
@@ -221,6 +276,19 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 			const divTimeline = divTimelines.createDiv({cls: "settings-div"});
 			const timelineNumber = timelineIndex + 1;
 
+			new Setting(divTimeline)
+			.setName('Table view')
+			.setDesc('Table view or Page view')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.timelines[timelineIndex].tableView)
+				.onChange(async value => {
+					this.plugin.settings.timelines[timelineIndex].tableView = value;
+					this.plugin.settings.timelines[timelineIndex].viewChanged = true;
+					await this.plugin.saveSettings();
+					this.display();
+				})
+			)
+
 			const canvasCallback = async (value:string) => {
 				timeline.canvasPath = value;
 				await this.plugin.saveSettings();
@@ -250,7 +318,7 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 				.onChange(noteCallback)
 			new MarkdownFileSuggest(noteTextComponent.inputEl as HTMLInputElement, this.app, noteCallback);
 
-			fileNameSetting.addButton(button => button 
+			fileNameSetting.addButton(button => button
 				.setIcon('trash')
 				.setTooltip('Delete this timeline. No files will be deleted')
 				.onClick(async () => {
@@ -260,140 +328,158 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 				})
 			);
 
-			const headingsTitle = new Setting(divTimeline);
-			headingsTitle
-			.setName('Headings')
-			.setDesc('Use Title as the tag for the title heading, and Group for the group heading')
-			.setTooltip("If it doesn't exist, a frontmatter tag will be added, in lowercase, for each heading in the headings fields.\nUse pattern 'heading | frontmatter' to use an alias between the frontmatter and the heading.");
+			if(this.plugin.settings.timelines[timelineIndex].tableView){
 
-			const headingsSetting = new Setting(divTimeline);
-			headingsSetting.controlEl.addClass("left-justify", "heading-width");
-			headingsSetting.infoEl.addClass("display-none");
+				const headingsTitle = new Setting(divTimeline);
+				headingsTitle
+				.setName('Headings')
+				.setDesc('Use Title as the tag for the title heading, and Group for the group heading')
+				.setTooltip("If it doesn't exist, a frontmatter tag will be added, in lowercase, for each heading in the headings fields.\nUse pattern 'heading | frontmatter' to use an alias between the frontmatter and the heading.");
 
-			for (let [headingIndex, heading] of this.plugin.settings.timelines[timelineIndex].headingsAndProperties.entries()){
+				const headingsSetting = new Setting(divTimeline);
+				headingsSetting.controlEl.addClass("left-justify", "heading-width");
+				headingsSetting.infoEl.addClass("display-none");
+
+				for (let [headingIndex, heading] of this.plugin.settings.timelines[timelineIndex].headingsAndProperties.entries()){
+					headingsSetting
+					.setTooltip("")
+					.addText(text => text
+						.setPlaceholder('heading')
+						.setValue(heading)
+						.onChange(async (value) => {
+							this.plugin.settings.timelines[timelineIndex].headingsAndProperties[headingIndex] = value;
+							await this.plugin.saveSettings();
+						})
+						.inputEl.before(createEl('label', {text: (headingIndex + 1).toString() + ". "}))
+					)
+				}
 				headingsSetting
-				.setTooltip("")
+				.addButton(button => button
+					.setIcon('plus')
+					.onClick(async () => {
+						this.plugin.addNewHeading(timelineIndex);
+						await this.plugin.saveSettings();
+						this.display();
+					})
+				)
+				.addButton(button => button
+					.setIcon('trash')
+					.setTooltip('Delete the last heading box')
+					.onClick(async () => {
+						this.plugin.deleteHeading(timelineIndex);
+						await this.plugin.saveSettings();
+						this.display();
+					})
+				);
+
+				new Setting(divTimeline)
+				.setName('What number heading is the Title?')
+				.setDesc('')
+				.setTooltip('Type the number of the heading. Leave blank for none')
 				.addText(text => text
-					.setPlaceholder('heading')
-					.setValue(heading)
-					.onChange(async (value) => {
-						this.plugin.settings.timelines[timelineIndex].headingsAndProperties[headingIndex] = value;
+					.setValue((this.plugin.settings.timelines[timelineIndex].titleHeadingIndex + 1).toString())
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].titleHeadingIndex =  parseInt(value) - 1;
 						await this.plugin.saveSettings();
 					})
-					.inputEl.before(createEl('label', {text: (headingIndex + 1).toString() + ". "}))
 				)
-			}
-			headingsSetting
-			.addButton(button => button
-				.setIcon('plus')
-				.onClick(async () => {
-					this.plugin.addNewHeading(timelineIndex);
-					await this.plugin.saveSettings();
-					this.display();
-				})
-			)
-			.addButton(button => button 
-				.setIcon('trash')
-				.setTooltip('Delete the last heading box')
-				.onClick(async () => {
-					this.plugin.deleteHeading(timelineIndex);
-					await this.plugin.saveSettings();
-					this.display();
-				})
-			);
-
-			new Setting(divTimeline)
-			.setName('What number heading is the Title?')
-			.setDesc('')
-			.setTooltip('Type the number of the heading. Leave blank for none')
-			.addText(text => text
-				.setValue((this.plugin.settings.timelines[timelineIndex].titleHeadingIndex + 1).toString())
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].titleHeadingIndex =  parseInt(value) - 1;
-					await this.plugin.saveSettings();
-				})
-			)
-			new Setting(divTimeline)
-			.setName('What number heading is the colour scheme on?')
-			.setTooltip('Leave blank for none')
-			.addText(text => text
-				.setValue((this.plugin.settings.timelines[timelineIndex].colourHeaderIndex + 1).toString())
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].colourHeaderIndex =  parseInt(value) - 1;
-					await this.plugin.saveSettings();
-				})
-			)
-			new Setting(divTimeline)
-			.setName('Show Row Numbers')
-			.setTooltip('Adds a number to each row')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.timelines[timelineIndex].showRowNumbers)
+				new Setting(divTimeline)
+				.setName('What number heading is the colour scheme on?')
+				.setTooltip('Leave blank for none')
+				.addText(text => text
+					.setValue((this.plugin.settings.timelines[timelineIndex].colourHeaderIndex + 1).toString())
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].colourHeaderIndex =  parseInt(value) - 1;
+						await this.plugin.saveSettings();
+					})
+				)
+				new Setting(divTimeline)
+				.setName('Show Row Numbers')
 				.setTooltip('Adds a number to each row')
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].showRowNumbers =  value;
-					await this.plugin.saveSettings();
-				})
-			)
-			const pageCountControl = new Setting(divTimeline);
-			pageCountControl
-			.setName('Show Page Count')
-			.setDesc('Add number of words per page. Defaults to 250')
-			.setTooltip('Leave blank for default - 250 words per page')
-			.addText(text => text
-				.setValue(this.plugin.settings.timelines[timelineIndex].wordsPerPage == undefined ? this.plugin.settings.defaultWordsPerPage.toString() : this.plugin.settings.timelines[timelineIndex].wordsPerPage.toString())
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].wordsPerPage = value == '' ? this.plugin.settings.defaultWordsPerPage : parseInt(value);
-					await this.plugin.saveSettings();
-				})
-			)
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.timelines[timelineIndex].showPageCount)
-				.setTooltip('The page count will be added as the last column to the table')
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].showPageCount =  value;
-					await this.plugin.saveSettings();
-				})
-			)
+				.addToggle(toggle => toggle
+					.setValue(this.plugin.settings.timelines[timelineIndex].showRowNumbers)
+					.setTooltip('Adds a number to each row')
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].showRowNumbers =  value;
+						await this.plugin.saveSettings();
+					})
+				)
+				const pageCountControl = new Setting(divTimeline);
+				pageCountControl
+				.setName('Show Page Count')
+				.setDesc('Add number of words per page. Defaults to 250')
+				.setTooltip('Leave blank for default - 250 words per page')
+				.addText(text => text
+					.setValue(this.plugin.settings.timelines[timelineIndex].wordsPerPage == undefined ? this.plugin.settings.defaultWordsPerPage.toString() : this.plugin.settings.timelines[timelineIndex].wordsPerPage.toString())
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].wordsPerPage = value == '' ? this.plugin.settings.defaultWordsPerPage : parseInt(value);
+						await this.plugin.saveSettings();
+					})
+				)
+				.addToggle(toggle => toggle
+					.setValue(this.plugin.settings.timelines[timelineIndex].showPageCount)
+					.setTooltip('The page count will be added as the last column to the table')
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].showPageCount =  value;
+						await this.plugin.saveSettings();
+					})
+				)
+				const wordCountControl = new Setting(divTimeline);
+				wordCountControl
+				.setName('Show Word Count')
+				.setDesc('Show number of words in note')
+				.addToggle(toggle => toggle
+					.setValue(this.plugin.settings.timelines[timelineIndex].showWordCount)
+					.setTooltip('The word count will be added as the last column to the table')
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].showWordCount =  value;
+						await this.plugin.saveSettings();
+					})
+				)
 
-			new Setting(divTimeline)
-			.setName('Show Groups Column')
-			.setDesc('Optionally give the column a title')
-			.setTooltip('Leave blank for none')
-			.addText(text => text
-				.setValue(this.plugin.settings.timelines[timelineIndex].groupHeading)
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].groupHeading = value;
-					await this.plugin.saveSettings();
-				})
-			)
-			.addToggle(toggle => toggle 
-				.setValue(this.plugin.settings.timelines[timelineIndex].showGroups)
-				.setTooltip('Toggle on and add a column heading name')
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].showGroups =  value;
-					await this.plugin.saveSettings();
-				})
-			)
-			new Setting(divTimeline)
-			.setName('Show Ungrouped Cards')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.timelines[timelineIndex].showUngrouped)
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].showUngrouped =  value;
-					await this.plugin.saveSettings();
-				})
-			)
-			new Setting(divTimeline)
-			.setName('Ignore groups with these labels')
-			.setDesc('Seperate each group with a comma or a space')
-			.setTooltip('Leave blank for none')
-			.addText(text => text
-				.setValue(this.plugin.settings.timelines[timelineIndex].ignoreGroups)
-				.onChange(async value => {
-					this.plugin.settings.timelines[timelineIndex].ignoreGroups = value;
-					await this.plugin.saveSettings();
-				})
-			)
+				new Setting(divTimeline)
+				.setName('Show Groups Column')
+				.setDesc('Optionally give the column a title')
+				.setTooltip('Leave blank for none')
+				.addText(text => text
+					.setValue(this.plugin.settings.timelines[timelineIndex].groupHeading)
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].groupHeading = value;
+						await this.plugin.saveSettings();
+					})
+				)
+				.addToggle(toggle => toggle
+					.setValue(this.plugin.settings.timelines[timelineIndex].showGroups)
+					.setTooltip('Toggle on and add a column heading name')
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].showGroups =  value;
+						await this.plugin.saveSettings();
+					})
+				)
+				new Setting(divTimeline)
+				.setName('Show Ungrouped Cards')
+				.addToggle(toggle => toggle
+					.setValue(this.plugin.settings.timelines[timelineIndex].showUngrouped)
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].showUngrouped =  value;
+						await this.plugin.saveSettings();
+					})
+				)
+				new Setting(divTimeline)
+				.setName('Ignore groups with these labels')
+				.setDesc('Seperate each group with a comma or a space')
+				.setTooltip('Leave blank for none')
+				.addText(text => text
+					.setValue(this.plugin.settings.timelines[timelineIndex].ignoreGroups)
+					.onChange(async value => {
+						this.plugin.settings.timelines[timelineIndex].ignoreGroups = value;
+						await this.plugin.saveSettings();
+					})
+				)
+			} else {
+				console.log('page view');
+			}
+
 			new Setting(divTimeline)
 			.setName('Show Acts Stats')
 			.addToggle(toggle => toggle
@@ -411,6 +497,7 @@ class RwkCanvasTimelineSettingTab extends PluginSettingTab {
 
 		for (let i = this.plugin.settings.lastIndex; i < this.plugin.settings.timelines.length; i++){
 			updateTimeline(this.plugin, this.plugin.settings.timelines[i]);
+			// this.plugin.settings.updateRunning = false;
 		}
 
 	}

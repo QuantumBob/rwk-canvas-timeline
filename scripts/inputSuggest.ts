@@ -61,6 +61,18 @@ abstract class AddTextSuggest extends AbstractInputSuggest<string> {
     abstract getContent(): string[];
 }
 
+export class FolderSuggest extends AddTextSuggest {
+	getContent() {
+		const folders = this.app.vault.getAllFolders(true);
+        return folders.map(folder => {
+            return folder.path;
+        })
+    }
+    getSuggestions(inputStr: string): string[] {
+        return this.doSimpleSearch(inputStr);
+    }
+}
+
 export class FileSuggest extends AddTextSuggest {
 	getContent() {
 		const files = this.app.vault.getFiles();
